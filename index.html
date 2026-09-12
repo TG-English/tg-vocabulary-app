@@ -47,6 +47,9 @@
         </div>
 
         <div class="start-grid">
+          <button id="adminMenuBtn" class="menu-card admin hidden" data-view="admin">
+            <span class="menu-icon">⚙</span><strong>학원 관리</strong><small>반과 학생 등록·수정</small>
+          </button>
           <button class="menu-card pink" data-view="setup">
             <span class="menu-icon">✎</span><strong>단어 시험 시작</strong><small>학생과 시험 유형 선택</small>
           </button>
@@ -118,12 +121,23 @@
         <div id="resultsList" class="results-list"></div>
         <button id="downloadResultsBtn" class="secondary full">성적 CSV 내려받기</button>
       </section>
+
+      <section id="adminView" class="view">
+        <div class="section-head"><button class="back" data-view="home">←</button><div><h2>학원 관리</h2><p>반을 만들고 등록된 학생 계정을 배정하세요.</p></div></div>
+        <div class="admin-grid">
+          <form id="classForm" class="card form-card"><h3>새 반 등록</h3><label>반 이름<input id="adminClassName" required placeholder="예: Rachel 중1반" /></label><label>학년도<input id="adminClassYear" type="number" min="2020" max="2100" required /></label><button id="saveClassBtn" class="primary" type="submit">반 저장</button></form>
+          <form id="studentAssignForm" class="card form-card"><h3>학생 반 배정</h3><label>학생 계정<select id="adminStudentSelect" required><option value="">학생을 선택하세요</option></select></label><label>배정할 반<select id="adminClassSelect" required><option value="">반을 선택하세요</option></select></label><label>학생 번호<input id="adminStudentNumber" placeholder="선택 사항" /></label><button id="assignStudentBtn" class="primary" type="submit">학생 배정</button></form>
+        </div>
+        <div class="card admin-note"><strong>학생 로그인 계정이 목록에 없나요?</strong><p>Supabase Authentication에서 학생 계정을 만든 뒤 학생용 프로필을 등록하면 이 목록에 나타납니다. 앱 안에서 계정을 발급하는 기능은 다음 단계에서 연결합니다.</p></div>
+        <div class="management-section"><div class="management-title"><h3>반 목록</h3><span id="classCount">0개</span></div><div id="adminClassList" class="management-list"></div></div>
+        <div class="management-section"><div class="management-title"><h3>학생 목록</h3><span id="studentCount">0명</span></div><div id="adminStudentList" class="management-list"></div></div>
+      </section>
     </main>
     <div id="toast" role="status"></div>
   </div>
   <script src="config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=7"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>
