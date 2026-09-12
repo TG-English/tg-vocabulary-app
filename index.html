@@ -18,9 +18,24 @@
         <span><strong>TG Vocabulary</strong><small>스스로 공부하는 힘</small></span>
       </button>
       <button id="installBtn" class="ghost hidden">앱 설치</button>
+      <button id="accountBtn" class="ghost hidden">로그아웃</button>
     </header>
 
     <main>
+      <section id="authView" class="view">
+        <div class="auth-card card">
+          <img src="assets/tg-logo.svg" alt="TG 영어전문학원" />
+          <span class="eyebrow">TG ENGLISH ACADEMY</span>
+          <h1>로그인</h1>
+          <p>학원에서 발급받은 이메일과 비밀번호를 입력하세요.</p>
+          <form id="loginForm">
+            <label>이메일<input id="loginEmail" type="email" autocomplete="username" required placeholder="student@example.com" /></label>
+            <label>비밀번호<input id="loginPassword" type="password" autocomplete="current-password" required placeholder="비밀번호" /></label>
+            <button id="loginBtn" class="primary" type="submit">로그인</button>
+          </form>
+          <p id="loginError" class="error-text" role="alert"></p>
+        </div>
+      </section>
       <section id="homeView" class="view active">
         <div class="hero card">
           <div>
@@ -106,6 +121,8 @@
     </main>
     <div id="toast" role="status"></div>
   </div>
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="app.js"></script>
 </body>
