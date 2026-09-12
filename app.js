@@ -33,3 +33,30 @@ $('#downloadResultsBtn').onclick=()=>{if(!state.results.length)return toast('저
 function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
 let installPrompt;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('#installBtn').classList.remove('hidden')});$('#installBtn').onclick=async()=>{if(installPrompt){installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('#installBtn').classList.add('hidden')}};
 if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');renderStats();
+
+// Supabase production mode. With empty config, the existing local/demo app stays available.
+const cloudConfig=window.TG_CONFIG||{};
+let cloudClient=null,cloudProfile=null;
+async function initCloudMode(){
+  if(!cloudConfig.supabaseUrl||!cloudConfig.supabaseAnonKey)return;
+  cloudClient=window.supabase.createClient(cloudConfig.supabaseUrl,cloudConfig.supabaseAnonKey);
+  const {data:{session}}=await cloudClient.auth.getSession();
+  if(session)await loadCloudProfile(session.user.id);else show('auth');
+  cloudClient.auth.onAuthStateChange(async(_event,nextSession)=>{
+    if(nextSession)await loadCloudProfile(nextSession.user.id);else{cloudProfile=null;$('#accountBtn').classList.add('hidden');show('auth')}
+  });
+}
+async function loadCloudProfile(userId){
+  const {data,error}=await cloudClient.from('profiles').select('id,display_name,role,is_active').eq('id',userId).single();
+  if(error||!data?.is_active){await cloudClient.auth.signOut();$('#loginError').textContent='등록된 활성 사용자 정보를 찾을 수 없습니다.';return}
+  cloudProfile=data;$('#accountBtn').classList.remove('hidden');$('.brand strong').innerHTML=`TG Vocabulary <span class="role-badge">${roleLabel(data.role)}</span>`;show('home');
+}
+function roleLabel(role){return({student:'학생',teacher:'선생님',admin:'관리자'})[role]||role}
+$('#loginForm').addEventListener('submit',async e=>{
+  e.preventDefault();if(!cloudClient)return;
+  const btn=$('#loginBtn');btn.disabled=true;$('#loginError').textContent='';
+  const {error}=await cloudClient.auth.signInWithPassword({email:$('#loginEmail').value.trim(),password:$('#loginPassword').value});
+  if(error)$('#loginError').textContent='이메일 또는 비밀번호를 확인해주세요.';btn.disabled=false;
+});
+$('#accountBtn').addEventListener('click',()=>cloudClient?.auth.signOut());
+initCloudMode();
