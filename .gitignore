@@ -1,0 +1,23 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies and builds
+node_modules/
+dist/
+.vite/
+
+# Local student data and exports
+private-data/
+student-data/
+exports/
+*.local.csv
+*.local.xlsx
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
