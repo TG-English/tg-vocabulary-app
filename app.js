@@ -4,7 +4,7 @@ const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
 function load(key,fallback){try{return JSON.parse(localStorage.getItem(key))||fallback}catch{return fallback}}
 function save(key,value){localStorage.setItem(key,JSON.stringify(value))}
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2200)}
-function show(view){if(view==='admin'&&cloudProfile?.role!=='admin')return toast('관리자만 이용할 수 있습니다.');$$('.view').forEach(v=>v.classList.remove('active'));$(`#${view}View`).classList.add('active');window.scrollTo({top:0,behavior:'smooth'});if(view==='home')renderStats();if(view==='upload')renderBooks();if(view==='setup')renderBookSelect();if(view==='results')renderResults();if(view==='admin')loadAdminData()}
+function show(view){if(view==='admin'&&cloudProfile?.role!=='admin')return toast('관리자만 이용할 수 있습니다.');if(['upload','setup','results'].includes(view)&&cloudProfile?.role==='student')return toast('학생 계정에서는 이용할 수 없습니다.');$$('.view').forEach(v=>v.classList.remove('active'));$(`#${view}View`).classList.add('active');window.scrollTo({top:0,behavior:'smooth'});if(view==='home')renderStats();if(view==='upload')renderBooks();if(view==='setup')renderBookSelect();if(view==='results')renderResults();if(view==='admin')loadAdminData();if(view==='student')loadStudentTests()}
 $$('[data-view]').forEach(b=>b.addEventListener('click',()=>show(b.dataset.view)));
 
 function normalize(v){return String(v??'').trim().toLowerCase().replace(/[.,!?]/g,'').replace(/\s+/g,' ')}
@@ -12,8 +12,10 @@ function shuffle(a){return [...a].sort(()=>Math.random()-.5)}
 function renderStats(){const scores=state.results.map(r=>r.score);$('#statWords').textContent=state.books.reduce((n,b)=>n+b.words.length,0);$('#statTests').textContent=state.results.length;$('#statAverage').textContent=scores.length?`${Math.round(scores.reduce((a,b)=>a+b,0)/scores.length)}점`:'-'}
 
 $('#excelFile').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const data=await file.arrayBuffer();const wb=XLSX.read(data);const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});let words=rows.map(r=>({english:String(r[0]).trim(),korean:String(r[1]).trim()})).filter(w=>w.english&&w.korean);if(words.length&&/english|영어|단어|word/i.test(words[0].english))words.shift();state.pendingWords=words;$('#uploadPreview').classList.remove('hidden');$('#uploadPreview').innerHTML=`<strong>${file.name}</strong><p>${words.length}개 단어를 확인했어요.</p>`;$('#saveBookBtn').disabled=!words.length;if(!$('#bookName').value)$('#bookName').value=file.name.replace(/\.[^.]+$/,'')}catch{toast('파일을 읽지 못했어요. 엑셀 형식을 확인해주세요.')}});
-$('#saveBookBtn').addEventListener('click',()=>{const name=$('#bookName').value.trim();if(!name||!state.pendingWords.length)return toast('단어장 이름과 파일을 확인해주세요.');state.books.unshift({id:Date.now().toString(),name,words:state.pendingWords,createdAt:new Date().toISOString()});save(STORE.books,state.books);state.pendingWords=[];$('#bookName').value='';$('#excelFile').value='';$('#uploadPreview').classList.add('hidden');$('#saveBookBtn').disabled=true;renderBooks();toast('단어장을 저장했어요!')});
-function renderBooks(){$('#bookList').innerHTML=state.books.map(b=>`<div class="book-item"><div><strong>${escapeHtml(b.name)}</strong><small>${b.words.length}개 단어</small></div><button data-delete-book="${b.id}">삭제</button></div>`).join('')||'<div class="card tip">아직 등록된 단어장이 없어요.</div>';$$('[data-delete-book]').forEach(btn=>btn.onclick=()=>{if(confirm('이 단어장을 삭제할까요?')){state.books=state.books.filter(b=>b.id!==btn.dataset.deleteBook);save(STORE.books,state.books);renderBooks();renderStats()}})}
+$('#saveBookBtn').addEventListener('click',async()=>{const name=$('#bookName').value.trim();if(!name||!state.pendingWords.length)return toast('단어장 이름과 파일을 확인해주세요.');if(cloudClient&&['admin','teacher'].includes(cloudProfile?.role))return saveCloudBook(name);state.books.unshift({id:Date.now().toString(),name,words:state.pendingWords,createdAt:new Date().toISOString()});save(STORE.books,state.books);clearBookForm();renderBooks();toast('단어장을 저장했어요!')});
+function clearBookForm(){state.pendingWords=[];$('#bookName').value='';$('#excelFile').value='';$('#uploadPreview').classList.add('hidden');$('#saveBookBtn').disabled=true}
+function renderBooks(){$('#bookList').innerHTML=state.books.map(b=>`<div class="book-item"><div><strong>${escapeHtml(b.name)}</strong><small>${b.words.length}개 단어 · ${b.isCloud?'학원 공유':'이 기기'}</small></div><button data-delete-book="${b.id}">삭제</button></div>`).join('')||'<div class="card tip">아직 등록된 단어장이 없어요.</div>';$$('[data-delete-book]').forEach(btn=>btn.onclick=()=>deleteBook(btn.dataset.deleteBook))}
+async function deleteBook(id){const book=state.books.find(b=>b.id===id);if(!book||!confirm('이 단어장을 삭제할까요?'))return;if(book.isCloud){const {error}=await cloudClient.from('vocabulary_books').delete().eq('id',id);if(error)return toast(`삭제 실패: ${error.message}`)}state.books=state.books.filter(b=>b.id!==id);save(STORE.books,state.books.filter(b=>!b.isCloud));renderBooks();renderStats();toast('단어장을 삭제했습니다.')}
 function renderBookSelect(){$('#bookSelect').innerHTML='<option value="">단어장을 선택하세요</option>'+state.books.map(b=>`<option value="${b.id}">${escapeHtml(b.name)} (${b.words.length})</option>`).join('')}
 
 $('#startTestBtn').addEventListener('click',()=>startTest());
@@ -52,9 +54,10 @@ async function initCloudMode(){
 async function loadCloudProfile(userId){
   const {data,error}=await cloudClient.from('profiles').select('id,academy_id,display_name,role,is_active').eq('id',userId).single();
   if(error||!data?.is_active){await cloudClient.auth.signOut();$('#loginError').textContent='등록된 활성 사용자 정보를 찾을 수 없습니다.';return}
-  cloudProfile=data;$('#accountBtn').classList.remove('hidden');$('#adminMenuBtn').classList.toggle('hidden',data.role!=='admin');$('.brand strong').innerHTML=`TG Vocabulary <span class="role-badge">${roleLabel(data.role)}</span>`;show('home');
+  cloudProfile=data;applyRoleMenus(data.role);$('#accountBtn').classList.remove('hidden');$('.brand strong').innerHTML=`TG Vocabulary <span class="role-badge">${roleLabel(data.role)}</span>`;if(data.role!=='student')await loadCloudBooks();show('home');
 }
 function roleLabel(role){return({student:'학생',teacher:'선생님',admin:'관리자'})[role]||role}
+function applyRoleMenus(role){const student=role==='student';$('#adminMenuBtn').classList.toggle('hidden',role!=='admin');$('#studentMenuBtn').classList.toggle('hidden',!student);$('#statsPanel').classList.toggle('hidden',student);['#testMenuBtn','#uploadMenuBtn','#resultsMenuBtn'].forEach(id=>$(id).classList.toggle('hidden',student));if(student){state.books=[];state.results=[]}else{state.books=load(STORE.books,[]);state.results=load(STORE.results,[])}}
 $('#loginForm').addEventListener('submit',async e=>{
   e.preventDefault();if(!cloudClient)return;
   const btn=$('#loginBtn');btn.disabled=true;btn.textContent='확인 중...';$('#loginError').textContent='';
@@ -76,6 +79,39 @@ function loginErrorMessage(error){
   return `로그인 오류: ${error?.message||'알 수 없는 오류'}`;
 }
 $('#accountBtn').addEventListener('click',()=>cloudClient?.auth.signOut());
+
+async function loadCloudBooks(){
+  const {data:books,error}=await cloudClient.from('vocabulary_books').select('id,title,created_at').order('created_at',{ascending:false});
+  if(error)return toast(`공유 단어장을 불러오지 못했습니다: ${error.message}`);
+  const ids=(books||[]).map(book=>book.id);let words=[];
+  if(ids.length){const result=await cloudClient.from('vocabulary_words').select('book_id,english,korean,accepted_answers,position').in('book_id',ids).order('position');if(result.error)return toast(`단어를 불러오지 못했습니다: ${result.error.message}`);words=result.data||[]}
+  const cloudBooks=(books||[]).map(book=>({id:book.id,name:book.title,createdAt:book.created_at,isCloud:true,words:words.filter(word=>word.book_id===book.id).map(word=>({english:word.english,korean:word.korean,acceptedAnswers:word.accepted_answers}))}));
+  state.books=[...cloudBooks,...load(STORE.books,[])];renderStats();
+}
+async function saveCloudBook(name){
+  const button=$('#saveBookBtn');setBusy(button,true,'업로드 중...');
+  const {data:book,error:bookError}=await cloudClient.from('vocabulary_books').insert({academy_id:cloudProfile.academy_id,owner_id:cloudProfile.id,title:name,is_sample:false}).select('id,title,created_at').single();
+  if(bookError){setBusy(button,false,'단어장 저장');return toast(`단어장 저장 실패: ${bookError.message}`)}
+  const rows=state.pendingWords.map((word,index)=>({book_id:book.id,english:word.english,korean:word.korean,position:index+1}));
+  for(let index=0;index<rows.length;index+=500){const {error}=await cloudClient.from('vocabulary_words').insert(rows.slice(index,index+500));if(error){await cloudClient.from('vocabulary_books').delete().eq('id',book.id);setBusy(button,false,'단어장 저장');return toast(`단어 업로드 실패: ${error.message}`)}}
+  clearBookForm();setBusy(button,false,'단어장 저장');toast(`${rows.length}개 단어를 학원 공유 단어장에 저장했습니다.`);await loadCloudBooks();renderBooks();
+}
+
+async function loadStudentTests(){
+  if(cloudProfile?.role!=='student')return;
+  const list=$('#studentTestList');list.innerHTML='<div class="loading-row">시험을 불러오는 중...</div>';
+  const assignmentsResult=await cloudClient.from('test_assignments').select('test_id,assigned_at').eq('student_id',cloudProfile.id);
+  if(assignmentsResult.error){list.innerHTML='<div class="empty-row">시험을 불러오지 못했습니다.</div>';return toast(assignmentsResult.error.message)}
+  const assignments=assignmentsResult.data||[],testIds=assignments.map(item=>item.test_id);if(!testIds.length){list.innerHTML='<div class="empty-row">아직 배정된 시험이 없습니다.</div>';return}
+  const testsResult=await cloudClient.from('tests').select('id,title,test_type,question_count,pass_score,available_from,available_until,is_published,class_id,book_id').in('id',testIds);
+  const attemptsResult=await cloudClient.from('test_attempts').select('test_id,score,status,submitted_at,attempt_number').eq('student_id',cloudProfile.id).in('test_id',testIds).order('attempt_number',{ascending:false});
+  if(testsResult.error||attemptsResult.error){list.innerHTML='<div class="empty-row">시험 정보를 불러오지 못했습니다.</div>';return toast((testsResult.error||attemptsResult.error).message)}
+  const tests=testsResult.data||[],classIds=[...new Set(tests.map(test=>test.class_id))],bookIds=[...new Set(tests.map(test=>test.book_id))];
+  const [classesResult,booksResult]=await Promise.all([cloudClient.from('classes').select('id,name').in('id',classIds),cloudClient.from('vocabulary_books').select('id,title').in('id',bookIds)]);
+  const classes=classesResult.data||[],books=booksResult.data||[],attempts=attemptsResult.data||[],now=Date.now();
+  list.innerHTML=tests.map(test=>{const latest=attempts.find(item=>item.test_id===test.id),klass=classes.find(item=>item.id===test.class_id),book=books.find(item=>item.id===test.book_id),notStarted=test.available_from&&new Date(test.available_from).getTime()>now,expired=test.available_until&&new Date(test.available_until).getTime()<now,available=test.is_published&&!notStarted&&!expired;return `<div class="student-test-row"><div><span class="test-state ${available?'ready':''}">${latest?.status==='submitted'?`${latest.score}점`:available?'응시 가능':notStarted?'시작 전':expired?'종료':'준비 중'}</span><strong>${escapeHtml(test.title)}</strong><small>${escapeHtml(klass?.name||'배정 반')} · ${escapeHtml(book?.title||'단어장')} · ${test.question_count}문제</small></div><button class="secondary" ${available?'':'disabled'} data-cloud-test="${test.id}">${latest?.status==='submitted'?'다시 보기':'시험 보기'}</button></div>`}).join('');
+  $$('[data-cloud-test]').forEach(button=>button.onclick=()=>toast('시험 응시 기능은 다음 단계에서 연결됩니다.'));
+}
 
 async function loadAdminData(){
   if(!cloudClient||cloudProfile?.role!=='admin')return;
