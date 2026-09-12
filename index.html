@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#175eb8" />
+  <meta name="description" content="TG영어전문학원 무료 독립형 단어 시험 웹앱" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="assets/tg-logo.png" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>TG Vocabulary Test</title>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <button class="brand" data-view="home" aria-label="홈으로">
+        <img src="assets/tg-logo.png" alt="TG 영어전문학원" />
+        <span><strong>TG Vocabulary</strong><small>스스로 공부하는 힘</small></span>
+      </button>
+      <button id="installBtn" class="ghost hidden">앱 설치</button>
+    </header>
+
+    <main>
+      <section id="homeView" class="view active">
+        <div class="hero card">
+          <div>
+            <span class="eyebrow">TG ENGLISH ACADEMY</span>
+            <h1>오늘의 단어,<br /><em>완벽하게 내 것으로.</em></h1>
+            <p>시험부터 자동채점, 오답 재시험까지 한 번에 끝내세요.</p>
+          </div>
+          <div class="hero-mark">A+</div>
+        </div>
+
+        <div class="start-grid">
+          <button class="menu-card pink" data-view="setup">
+            <span class="menu-icon">✎</span><strong>단어 시험 시작</strong><small>학생과 시험 유형 선택</small>
+          </button>
+          <button class="menu-card blue" data-view="upload">
+            <span class="menu-icon">↥</span><strong>엑셀 단어 등록</strong><small>선생님용 단어장 관리</small>
+          </button>
+          <button class="menu-card mint" data-view="results">
+            <span class="menu-icon">✓</span><strong>성적 확인</strong><small>학생별 기록과 오답</small>
+          </button>
+        </div>
+
+        <div class="stats card">
+          <div><span id="statWords">0</span><small>등록 단어</small></div>
+          <div><span id="statTests">0</span><small>완료 시험</small></div>
+          <div><span id="statAverage">-</span><small>평균 점수</small></div>
+        </div>
+      </section>
+
+      <section id="uploadView" class="view">
+        <div class="section-head"><button class="back" data-view="home">←</button><div><h2>엑셀 단어 등록</h2><p>첫 번째 열은 영어, 두 번째 열은 뜻으로 읽어요.</p></div></div>
+        <div class="card form-card">
+          <label>단어장 이름<input id="bookName" placeholder="예: 능률VOCA 어원편 Day 1" /></label>
+          <label class="dropzone" for="excelFile"><span>📄</span><strong>엑셀 파일 선택</strong><small>.xlsx, .xls, .csv 파일 지원</small></label>
+          <input id="excelFile" class="hidden" type="file" accept=".xlsx,.xls,.csv" />
+          <div id="uploadPreview" class="preview hidden"></div>
+          <button id="saveBookBtn" class="primary" disabled>단어장 저장</button>
+        </div>
+        <div class="card tip"><strong>엑셀 작성 예시</strong><div class="sample-row"><span>apple</span><span>사과</span></div><div class="sample-row"><span>achieve</span><span>달성하다</span></div></div>
+        <div id="bookList" class="book-list"></div>
+      </section>
+
+      <section id="setupView" class="view">
+        <div class="section-head"><button class="back" data-view="home">←</button><div><h2>시험 준비</h2><p>학생 정보와 시험 방식을 선택하세요.</p></div></div>
+        <div class="card form-card">
+          <label>반 선택<select id="className"><option value="">반을 선택하세요</option><option>Rachel반</option><option>Ella반</option><option>Ethan반</option><option>Elly반</option><option>Danny반</option><option>Sion반</option></select></label>
+          <label>학생 이름<input id="studentName" placeholder="이름을 입력하세요" autocomplete="name" /></label>
+          <label>단어장 선택<select id="bookSelect"><option value="">단어장을 선택하세요</option></select></label>
+          <label>문제 수<select id="questionCount"><option value="10">10문제</option><option value="20">20문제</option><option value="30">30문제</option><option value="all">전체</option></select></label>
+          <fieldset><legend>시험 유형</legend><div class="type-grid">
+            <label class="type-option"><input type="radio" name="testType" value="en-ko" checked /><span><b>영어 → 뜻</b><small>영어를 보고 뜻 쓰기</small></span></label>
+            <label class="type-option"><input type="radio" name="testType" value="ko-en" /><span><b>뜻 → 영어</b><small>뜻을 보고 영어 쓰기</small></span></label>
+            <label class="type-option"><input type="radio" name="testType" value="spelling" /><span><b>스펠링 시험</b><small>소리를 듣고 영어 쓰기</small></span></label>
+          </div></fieldset>
+          <button id="startTestBtn" class="primary">시험 시작</button>
+        </div>
+      </section>
+
+      <section id="testView" class="view">
+        <div class="test-head"><div><span id="testStudent"></span><strong id="testBook"></strong></div><div id="progressText">1 / 10</div></div>
+        <div class="progress"><i id="progressBar"></i></div>
+        <div class="question-card card">
+          <span id="questionLabel" class="eyebrow">뜻을 입력하세요</span>
+          <h2 id="questionPrompt"></h2>
+          <button id="speakBtn" class="speak hidden" aria-label="단어 듣기">🔊 다시 듣기</button>
+          <input id="answerInput" class="answer-input" autocomplete="off" autocapitalize="none" placeholder="정답 입력" />
+          <button id="nextQuestionBtn" class="primary">다음 문제</button>
+        </div>
+      </section>
+
+      <section id="scoreView" class="view">
+        <div class="score-card card"><span>시험 완료!</span><div id="scoreCircle"><strong id="scoreValue">100</strong><small>점</small></div><h2 id="scoreMessage"></h2><p id="scoreDetail"></p></div>
+        <div id="wrongAnswers" class="wrong-list"></div>
+        <div class="button-row"><button id="retryWrongBtn" class="secondary">오답 재시험</button><button class="primary" data-view="home">홈으로</button></div>
+      </section>
+
+      <section id="resultsView" class="view">
+        <div class="section-head"><button class="back" data-view="home">←</button><div><h2>학생별 성적</h2><p>이 기기에 저장된 시험 기록입니다.</p></div></div>
+        <div class="card result-filter"><select id="resultClass"><option value="all">전체 반</option></select><input id="resultSearch" placeholder="학생 이름 검색" /></div>
+        <div id="resultsList" class="results-list"></div>
+        <button id="downloadResultsBtn" class="secondary full">성적 CSV 내려받기</button>
+      </section>
+    </main>
+    <div id="toast" role="status"></div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
