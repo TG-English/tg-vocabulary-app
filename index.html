@@ -100,7 +100,9 @@
             <label class="type-option"><input type="radio" name="testType" value="en-ko" checked /><span><b>영어 → 뜻</b><small>영어를 보고 뜻 쓰기</small></span></label>
             <label class="type-option"><input type="radio" name="testType" value="ko-en" /><span><b>뜻 → 영어</b><small>뜻을 보고 영어 쓰기</small></span></label>
             <label class="type-option"><input type="radio" name="testType" value="spelling" /><span><b>스펠링 시험</b><small>소리를 듣고 영어 쓰기</small></span></label>
+            <label class="type-option"><input type="radio" name="testType" value="mixed" /><span><b>혼합 시험</b><small>뜻쓰기와 스펠링 함께</small></span></label>
           </div></fieldset>
+          <div id="mixedOptions" class="mixed-options hidden"><label>영어 → 뜻 문제 수<input id="meaningQuestionCount" type="number" min="1" value="20" /></label><label>스펠링 문제 수<input id="spellingQuestionCount" type="number" min="1" value="10" /></label><small>두 유형의 문제가 섞여서 출제됩니다.</small></div>
           <button id="startTestBtn" class="primary">시험 시작</button>
         </div>
       </section>
@@ -147,6 +149,6 @@
   <script src="config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=12"></script>
+  <script src="app.js?v=13"></script>
 </body>
 </html>
