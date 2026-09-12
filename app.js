@@ -54,9 +54,23 @@ async function loadCloudProfile(userId){
 function roleLabel(role){return({student:'학생',teacher:'선생님',admin:'관리자'})[role]||role}
 $('#loginForm').addEventListener('submit',async e=>{
   e.preventDefault();if(!cloudClient)return;
-  const btn=$('#loginBtn');btn.disabled=true;$('#loginError').textContent='';
-  const {error}=await cloudClient.auth.signInWithPassword({email:$('#loginEmail').value.trim(),password:$('#loginPassword').value});
-  if(error)$('#loginError').textContent='이메일 또는 비밀번호를 확인해주세요.';btn.disabled=false;
+  const btn=$('#loginBtn');btn.disabled=true;btn.textContent='확인 중...';$('#loginError').textContent='';
+  try{
+    const {error}=await cloudClient.auth.signInWithPassword({email:$('#loginEmail').value.trim().toLowerCase(),password:$('#loginPassword').value});
+    if(error)$('#loginError').textContent=loginErrorMessage(error);
+  }catch(error){
+    $('#loginError').textContent='Supabase 서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.';
+  }finally{
+    btn.disabled=false;btn.textContent='로그인';
+  }
 });
+function loginErrorMessage(error){
+  const message=String(error?.message||'').toLowerCase();
+  if(message.includes('email not confirmed'))return '이메일 확인이 완료되지 않은 계정입니다. Supabase Users에서 Confirm 상태를 확인해주세요.';
+  if(message.includes('invalid login credentials'))return '이메일 또는 비밀번호가 일치하지 않습니다.';
+  if(message.includes('rate limit'))return '로그인을 여러 번 시도해 잠시 제한됐습니다. 몇 분 후 다시 시도해주세요.';
+  if(message.includes('fetch'))return 'Supabase 연결에 실패했습니다. 인터넷 연결을 확인해주세요.';
+  return `로그인 오류: ${error?.message||'알 수 없는 오류'}`;
+}
 $('#accountBtn').addEventListener('click',()=>cloudClient?.auth.signOut());
 initCloudMode();
