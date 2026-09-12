@@ -27,3 +27,6 @@ TG영어전문학원용 무료 독립형 단어 시험 웹앱입니다. 현재 �
 - 환경변수 예시: [`.env.example`](.env.example)
 
 실제 학생 데이터, 비밀번호, `.env` 파일은 저장소에 올리지 않습니다. Supabase service-role key는 브라우저 코드에서 절대 사용하지 않습니다.
+
+
+Deployment: GitHub Actions builds runtime configuration from repository secrets.
