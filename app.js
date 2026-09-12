@@ -54,7 +54,7 @@ async function initCloudMode(){
 async function loadCloudProfile(userId){
   const {data,error}=await cloudClient.from('profiles').select('id,academy_id,display_name,role,is_active').eq('id',userId).single();
   if(error||!data?.is_active){await cloudClient.auth.signOut();$('#loginError').textContent='등록된 활성 사용자 정보를 찾을 수 없습니다.';return}
-  cloudProfile=data;applyRoleMenus(data.role);$('#accountBtn').classList.remove('hidden');$('.brand strong').innerHTML=`TG Vocabulary <span class="role-badge">${roleLabel(data.role)}</span>`;if(data.role!=='student')await loadCloudBooks();show('home');
+  cloudProfile=data;applyRoleMenus(data.role);$('#accountBtn').classList.remove('hidden');$('.brand strong').innerHTML=`TG Vocabulary <span class="role-badge">${roleLabel(data.role)}</span>`;if(data.role!=='student')await Promise.all([loadCloudBooks(),loadCloudClasses()]);show('home');
 }
 function roleLabel(role){return({student:'학생',teacher:'선생님',admin:'관리자'})[role]||role}
 function applyRoleMenus(role){const student=role==='student';$('#adminMenuBtn').classList.toggle('hidden',role!=='admin');$('#studentMenuBtn').classList.toggle('hidden',!student);$('#statsPanel').classList.toggle('hidden',student);['#testMenuBtn','#uploadMenuBtn','#resultsMenuBtn'].forEach(id=>$(id).classList.toggle('hidden',student));if(student){state.books=[];state.results=[]}else{state.books=load(STORE.books,[]);state.results=load(STORE.results,[])}}
@@ -87,6 +87,11 @@ async function loadCloudBooks(){
   if(ids.length){const result=await cloudClient.from('vocabulary_words').select('book_id,english,korean,accepted_answers,position').in('book_id',ids).order('position');if(result.error)return toast(`단어를 불러오지 못했습니다: ${result.error.message}`);words=result.data||[]}
   const cloudBooks=(books||[]).map(book=>({id:book.id,name:book.title,createdAt:book.created_at,isCloud:true,words:words.filter(word=>word.book_id===book.id).map(word=>({english:word.english,korean:word.korean,acceptedAnswers:word.accepted_answers}))}));
   state.books=[...cloudBooks,...load(STORE.books,[])];renderStats();
+}
+async function loadCloudClasses(){
+  const {data,error}=await cloudClient.from('classes').select('id,name,school_year').eq('is_active',true).order('school_year',{ascending:false}).order('name');
+  if(error)return toast(`반 목록을 불러오지 못했습니다: ${error.message}`);
+  $('#className').innerHTML='<option value="">반을 선택하세요</option>'+(data||[]).map(item=>`<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)} (${item.school_year})</option>`).join('');
 }
 async function saveCloudBook(name){
   const button=$('#saveBookBtn');setBusy(button,true,'업로드 중...');
