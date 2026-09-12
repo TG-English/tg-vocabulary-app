@@ -39,7 +39,8 @@ const cloudConfig=window.TG_CONFIG||{};
 let cloudClient=null,cloudProfile=null;
 async function initCloudMode(){
   if(!cloudConfig.supabaseUrl||!cloudConfig.supabaseAnonKey)return;
-  cloudClient=window.supabase.createClient(cloudConfig.supabaseUrl,cloudConfig.supabaseAnonKey);
+  const supabaseUrl=String(cloudConfig.supabaseUrl).trim().replace(/\/rest\/v1\/?$/,'').replace(/\/+$/,'');
+  cloudClient=window.supabase.createClient(supabaseUrl,cloudConfig.supabaseAnonKey);
   const {data:{session}}=await cloudClient.auth.getSession();
   if(session)await loadCloudProfile(session.user.id);else show('auth');
   cloudClient.auth.onAuthStateChange(async(_event,nextSession)=>{
