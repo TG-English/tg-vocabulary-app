@@ -173,6 +173,22 @@ alter table public.test_assignments enable row level security;
 alter table public.test_attempts enable row level security;
 alter table public.attempt_answers enable row level security;
 
+revoke all on table public.academies, public.profiles, public.classes,
+  public.class_teachers, public.class_students, public.vocabulary_books,
+  public.vocabulary_words, public.tests, public.test_questions,
+  public.test_assignments, public.test_attempts, public.attempt_answers
+from anon, authenticated;
+
+grant select on table public.academies to authenticated;
+grant select, insert, update, delete on table public.profiles, public.classes,
+  public.class_teachers, public.class_students, public.vocabulary_books,
+  public.vocabulary_words, public.tests, public.test_questions,
+  public.test_assignments to authenticated;
+grant select, insert on table public.test_attempts to authenticated;
+grant select on table public.attempt_answers to authenticated;
+
+create policy academies_select on public.academies for select using (id = public.my_academy_id());
+
 create policy profiles_select on public.profiles for select using (
   id = auth.uid() or public.is_admin() or public.student_in_taught_class(id)
 );
