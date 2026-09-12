@@ -1,4 +1,4 @@
-const CACHE='tg-voca-v8';
+const CACHE='tg-voca-v9';
 const ASSETS=['./styles.css','./manifest.webmanifest','./assets/tg-logo.svg'];
 self.addEventListener('install',event=>{
   self.skipWaiting();
