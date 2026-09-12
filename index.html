@@ -127,8 +127,9 @@
         <div class="admin-grid">
           <form id="classForm" class="card form-card"><h3>새 반 등록</h3><label>반 이름<input id="adminClassName" required placeholder="예: Rachel 중1반" /></label><label>학년도<input id="adminClassYear" type="number" min="2020" max="2100" required /></label><button id="saveClassBtn" class="primary" type="submit">반 저장</button></form>
           <form id="studentAssignForm" class="card form-card"><h3>학생 반 배정</h3><label>학생 계정<select id="adminStudentSelect" required><option value="">학생을 선택하세요</option></select></label><label>배정할 반<select id="adminClassSelect" required><option value="">반을 선택하세요</option></select></label><label>학생 번호<input id="adminStudentNumber" placeholder="선택 사항" /></label><button id="assignStudentBtn" class="primary" type="submit">학생 배정</button></form>
+          <form id="studentAccountForm" class="card form-card account-form"><h3>학생 로그인 계정 발급</h3><label>학생 이름<input id="newStudentName" required autocomplete="off" placeholder="예: 김유지" /></label><label>로그인 이메일<input id="newStudentEmail" type="email" required autocomplete="off" placeholder="student@example.com" /></label><label>임시 비밀번호<input id="newStudentPassword" type="password" minlength="8" required autocomplete="new-password" placeholder="8자 이상" /></label><label>배정할 반<select id="newStudentClass" required><option value="">반을 선택하세요</option></select></label><label>학생 번호<input id="newStudentNumber" autocomplete="off" placeholder="선택 사항" /></label><button id="createStudentBtn" class="primary" type="submit">계정 발급</button></form>
         </div>
-        <div class="card admin-note"><strong>학생 로그인 계정이 목록에 없나요?</strong><p>Supabase Authentication에서 학생 계정을 만든 뒤 학생용 프로필을 등록하면 이 목록에 나타납니다. 앱 안에서 계정을 발급하는 기능은 다음 단계에서 연결합니다.</p></div>
+        <div class="card admin-note"><strong>계정 발급 안내</strong><p>임시 비밀번호는 화면이나 데이터베이스에 따로 저장되지 않습니다. 발급 직후 학생에게 안전하게 전달해 주세요. 이메일 확인 설정이 켜져 있으면 학생이 확인 메일을 먼저 눌러야 로그인할 수 있습니다.</p></div>
         <div class="management-section"><div class="management-title"><h3>반 목록</h3><span id="classCount">0개</span></div><div id="adminClassList" class="management-list"></div></div>
         <div class="management-section"><div class="management-title"><h3>학생 목록</h3><span id="studentCount">0명</span></div><div id="adminStudentList" class="management-list"></div></div>
       </section>
@@ -138,6 +139,6 @@
   <script src="config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>
