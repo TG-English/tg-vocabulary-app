@@ -50,22 +50,30 @@
           <button id="adminMenuBtn" class="menu-card admin hidden" data-view="admin">
             <span class="menu-icon">⚙</span><strong>학원 관리</strong><small>반과 학생 등록·수정</small>
           </button>
-          <button class="menu-card pink" data-view="setup">
+          <button id="studentMenuBtn" class="menu-card pink hidden" data-view="student">
+            <span class="menu-icon">▶</span><strong>내 시험</strong><small>배정된 시험과 결과 확인</small>
+          </button>
+          <button id="testMenuBtn" class="menu-card pink" data-view="setup">
             <span class="menu-icon">✎</span><strong>단어 시험 시작</strong><small>학생과 시험 유형 선택</small>
           </button>
-          <button class="menu-card blue" data-view="upload">
+          <button id="uploadMenuBtn" class="menu-card blue" data-view="upload">
             <span class="menu-icon">↥</span><strong>엑셀 단어 등록</strong><small>선생님용 단어장 관리</small>
           </button>
-          <button class="menu-card mint" data-view="results">
+          <button id="resultsMenuBtn" class="menu-card mint" data-view="results">
             <span class="menu-icon">✓</span><strong>성적 확인</strong><small>학생별 기록과 오답</small>
           </button>
         </div>
 
-        <div class="stats card">
+        <div id="statsPanel" class="stats card">
           <div><span id="statWords">0</span><small>등록 단어</small></div>
           <div><span id="statTests">0</span><small>완료 시험</small></div>
           <div><span id="statAverage">-</span><small>평균 점수</small></div>
         </div>
+      </section>
+
+      <section id="studentView" class="view">
+        <div class="section-head"><button class="back" data-view="home">←</button><div><h2>내 시험</h2><p>나에게 배정된 시험만 표시됩니다.</p></div></div>
+        <div id="studentTestList" class="management-list"><div class="loading-row">불러오는 중...</div></div>
       </section>
 
       <section id="uploadView" class="view">
@@ -139,6 +147,6 @@
   <script src="config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>
