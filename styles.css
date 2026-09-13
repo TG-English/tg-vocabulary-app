@@ -6,3 +6,10 @@
 .account-form{grid-column:1/-1;grid-template-columns:1fr 1fr}.account-form h3,.account-form button{grid-column:1/-1}@media(max-width:650px){.account-form{grid-template-columns:1fr}.account-form h3,.account-form button{grid-column:auto}}
 .student-test-row{background:#fff;border-radius:18px;padding:20px;box-shadow:0 6px 16px rgba(24,59,104,.07);display:flex;align-items:center;justify-content:space-between;gap:18px}.student-test-row>div{display:grid;gap:6px}.student-test-row small{color:var(--muted)}.test-state{width:max-content;background:#f1f3f6;color:#737f8d;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:800}.test-state.ready{background:#e9faf6;color:#21836f}@media(max-width:650px){.student-test-row{align-items:stretch;flex-direction:column}.student-test-row button{width:100%}}
 .mixed-options{display:grid;grid-template-columns:1fr 1fr;gap:12px;background:#f7f4ff;border-radius:16px;padding:16px}.mixed-options label{display:grid;gap:7px;font-weight:750}.mixed-options input{width:100%;height:48px;border:1px solid var(--line);border-radius:12px;padding:0 14px;font-size:16px}.mixed-options small{grid-column:1/-1;color:var(--muted)}@media(max-width:650px){.mixed-options{grid-template-columns:1fr}.mixed-options small{grid-column:auto}}
+/* Exam assignment roster: usable checkboxes on narrow screens. */
+.exam-roster {display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;max-height:320px;overflow:auto;margin-top:12px}
+.exam-roster label {display:flex;align-items:center;gap:10px;padding:12px;background:#f4f7fb;border-radius:10px}
+.exam-roster input[type=checkbox] {width:22px;height:22px;flex:0 0 22px;margin:0}
+#assignExamStudents {min-height:24px}
+#assignedExamList .card {margin-bottom:14px}
+#assignExamSubmitStatus {white-space:pre-line}

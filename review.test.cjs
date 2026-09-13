@@ -12,8 +12,8 @@ function setup() {
   }
   const context = vm.createContext({
     state:{answers:[], results:[], current:null}, STORE:{results:'results'},
-    $:element, document:{querySelector: id => elements.get(id), querySelectorAll:()=>[], createElement:()=>({})},
-    finishTest(){}, filterResults(){}, renderResults(){}, normalize:s=>s, escapeHtml:s=>s,
+    $:element, $$:()=>[], document:{querySelector: id => elements.get(id), querySelectorAll:()=>[], createElement:()=>({})},
+    applyRoleMenus(){}, finishTest(){}, filterResults(){}, renderResults(){}, normalize:s=>s, escapeHtml:s=>s,
     load:(key,fallback)=>storage.get(key)||fallback, save:(key,value)=>storage.set(key,value),
     shuffle:a=>[...a].reverse(), show:v=>context.view=v, renderQuestion:()=>{},
     toast:message=>context.error=message, cloudProfile:null, cloudClient:null,
@@ -36,6 +36,65 @@ test('mixed retry includes every wrong word, preserves question types, and needs
   assert.equal(context.state.current.isPractice,true);
   assert.equal(context.state.current.cloudAttemptId,undefined);
   assert.equal(context.view,'test');
+});
+
+test('assignment plan keeps selected students and limits unique mixed questions to range', () => {
+  const {context} = setup();
+  context.words = Array.from({length:50},(_,i)=>({id:`word-${i+1}`}));
+  context.input = {title:'Test',students:['a','b','a'],type:'mixed',start:11,end:40,meaning:20,spelling:10,pass:80};
+  const plan = vm.runInContext("buildExamPlan(input,words,['a','b','c'],true,()=>0.4)",context);
+  assert.equal(plan.students.length,2);
+  assert.equal(plan.questions.length,30);
+  assert.equal(new Set(plan.questions.map(q=>q.word_id)).size,30);
+  assert.equal(plan.questions.filter(q=>q.question_type==='en_ko').length,20);
+  assert.equal(plan.questions.filter(q=>q.question_type==='ko_en').length,10);
+  assert.ok(plan.questions.every(q=>Number(q.word_id.split('-')[1])>=11&&Number(q.word_id.split('-')[1])<=40));
+});
+
+test('assignment rejects stale student selection, fractional counts and unavailable mixed mode', () => {
+  const {context} = setup();
+  context.words = [{id:'one'},{id:'two'}];
+  context.input = {title:'Test',students:['moved'],type:'en_ko',start:1,end:2,count:1,pass:80};
+  assert.throws(()=>vm.runInContext("buildExamPlan(input,words,['active'],false)",context),/반 배정이 변경/);
+  context.input.students=['active']; context.input.count=1.5;
+  assert.throws(()=>vm.runInContext("buildExamPlan(input,words,['active'],false)",context),/문항 수/);
+  context.input.type='mixed';
+  assert.throws(()=>vm.runInContext("buildExamPlan(input,words,['active'],false)",context),/서버 설정/);
+});
+
+function assignmentClient(failTable, alreadyPublished=false) {
+  const writes=[];
+  const client={from(table){
+    let action='select', payload;
+    const query={insert(value){action='insert';payload=value;return this;},update(value){action='update';payload=value;return this;},delete(){action='delete';return this;},select(){return this;},eq(){return this;},single(){return execute();},then(resolve,reject){return execute().then(resolve,reject);}};
+    async function execute(){
+      writes.push({table,action,payload});
+      if (table===failTable && action==='insert') return {error:{message:'network failure'}};
+      if (table==='tests' && action==='insert') return {data:{id:'exam'}};
+      if (table==='tests' && action==='select') return {data:{id:'exam',is_published:alreadyPublished}};
+      return {data:{id:'exam'}};
+    }
+    return query;
+  }};
+  return {client,writes};
+}
+
+test('assignment publishes only after question and selected-student inserts', async () => {
+  const {context} = setup(); const {client,writes}=assignmentClient();
+  context.client=client;context.plan={title:'Test',type:'ko_en',count:1,pass:80,questions:[{word_id:'word',position:1}],students:['chosen']};
+  await vm.runInContext("persistAssignedExam(client,{id:'teacher',academy_id:'a'},'class','book',plan)",context);
+  assert.deepEqual(writes.map(w=>[w.table,w.action]),[['tests','insert'],['test_questions','insert'],['test_assignments','insert'],['tests','update']]);
+  assert.equal(writes[0].payload.is_published,false);
+  assert.equal(writes[2].payload[0].student_id,'chosen');
+  assert.equal(writes[3].payload.is_published,true);
+});
+
+test('failed assignment never publishes and removes only its new unpublished draft', async () => {
+  const {context} = setup(); const {client,writes}=assignmentClient('test_assignments');
+  context.client=client;context.plan={title:'Test',type:'ko_en',count:1,questions:[{word_id:'word',position:1}],students:['chosen']};
+  await assert.rejects(vm.runInContext("persistAssignedExam(client,{id:'teacher',academy_id:'a'},'class','book',plan)",context),/network failure/);
+  assert.equal(writes.some(w=>w.action==='update'),false);
+  assert.equal(writes.at(-1).action,'delete');
 });
 
 test('staff query scopes by academy and assigned classes with stable pagination', () => {
