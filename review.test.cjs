@@ -13,7 +13,7 @@ function setup() {
   const context = vm.createContext({
     state:{answers:[], results:[], current:null}, STORE:{results:'results'},
     $:element, $$:()=>[], document:{querySelector: id => elements.get(id), querySelectorAll:()=>[], createElement:()=>({})},
-    applyRoleMenus(){}, finishTest(){}, filterResults(){}, renderResults(){}, normalize:s=>s, escapeHtml:s=>s,
+    applyRoleMenus(){}, finishTest(){}, filterResults(){}, renderResults(){}, normalize:s=>String(s).trim().toLowerCase(), normalizeKorean:s=>String(s).replace(/\s/g,''), escapeHtml:s=>s,
     load:(key,fallback)=>storage.get(key)||fallback, save:(key,value)=>storage.set(key,value),
     shuffle:a=>[...a].reverse(), show:v=>context.view=v, renderQuestion:()=>{},
     toast:message=>context.error=message, cloudProfile:null, cloudClient:null,
@@ -40,15 +40,36 @@ test('mixed retry includes every wrong word, preserves question types, and needs
 
 test('assignment plan keeps selected students and limits unique mixed questions to range', () => {
   const {context} = setup();
-  context.words = Array.from({length:50},(_,i)=>({id:`word-${i+1}`}));
+  context.words = Array.from({length:50},(_,i)=>({id:`word-${i+1}`,english:`word-${i+1}`,korean:`뜻-${i+1}`}));
   context.input = {title:'Test',students:['a','b','a'],type:'mixed',start:11,end:40,meaning:20,spelling:10,pass:80};
-  const plan = vm.runInContext("buildExamPlan(input,words,['a','b','c'],true,()=>0.4)",context);
+  const plan = vm.runInContext("buildExamPlan(input,words,['a','b','c'],true,false,()=>0.4)",context);
   assert.equal(plan.students.length,2);
   assert.equal(plan.questions.length,30);
   assert.equal(new Set(plan.questions.map(q=>q.word_id)).size,30);
   assert.equal(plan.questions.filter(q=>q.question_type==='en_ko').length,20);
   assert.equal(plan.questions.filter(q=>q.question_type==='ko_en').length,10);
   assert.ok(plan.questions.every(q=>Number(q.word_id.split('-')[1])>=11&&Number(q.word_id.split('-')[1])<=40));
+});
+
+test('duplicate spellings become one question and all distinct meanings are accepted', () => {
+  const {context} = setup();
+  context.words=[
+    {id:'first',english:'issue',korean:'문제',acceptedAnswers:['쟁점']},
+    {id:'second',english:' Issue ',korean:'발행하다'},
+    {id:'third',english:'apple',korean:'사과'}
+  ];
+  context.input={title:'Test',students:['a'],type:'en_ko',start:1,end:3,count:2,pass:80};
+  const plan=vm.runInContext("buildExamPlan(input,words,['a'],true,true,()=>0.9)",context);
+  assert.equal(plan.questions.length,2);
+  const issue=plan.questions.find(q=>q.word_id==='first');
+  assert.deepEqual(JSON.parse(JSON.stringify(issue.accepted_answers)),['문제','쟁점','발행하다']);
+});
+
+test('question count error reports unique spelling count within selected range', () => {
+  const {context}=setup();
+  context.words=[{id:'a',english:'same',korean:'하나'},{id:'b',english:'SAME',korean:'둘'}];
+  context.input={title:'Test',students:['a'],type:'en_ko',start:1,end:2,count:2,pass:80};
+  assert.throws(()=>vm.runInContext("buildExamPlan(input,words,['a'],true,true)",context),/중복|같은 철자|1개/);
 });
 
 test('assignment rejects stale student selection, fractional counts and unavailable mixed mode', () => {
