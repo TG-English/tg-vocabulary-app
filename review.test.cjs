@@ -7,13 +7,13 @@ function setup() {
   const elements = new Map(), storage = new Map();
   function element(id) {
     if (!elements.has(id)) elements.set(id, {textContent:'', innerHTML:'', disabled:false,
-      style:{}, classList:{toggle(){}}, append(){}, after(){}, remove(){elements.delete(id);}});
+      style:{}, classList:{toggle(){},add(){}}, append(){}, after(){}, remove(){elements.delete(id);}});
     return elements.get(id);
   }
   const context = vm.createContext({
     state:{answers:[], results:[], current:null}, STORE:{results:'results'},
     $:element, document:{querySelector: id => elements.get(id), querySelectorAll:()=>[], createElement:()=>({})},
-    finishTest(){}, filterResults(){}, normalize:s=>s, escapeHtml:s=>s,
+    finishTest(){}, filterResults(){}, renderResults(){}, normalize:s=>s, escapeHtml:s=>s,
     load:(key,fallback)=>storage.get(key)||fallback, save:(key,value)=>storage.set(key,value),
     shuffle:a=>[...a].reverse(), show:v=>context.view=v, renderQuestion:()=>{},
     toast:message=>context.error=message, cloudProfile:null, cloudClient:null,
@@ -36,6 +36,33 @@ test('mixed retry includes every wrong word, preserves question types, and needs
   assert.equal(context.state.current.isPractice,true);
   assert.equal(context.state.current.cloudAttemptId,undefined);
   assert.equal(context.view,'test');
+});
+
+test('staff query scopes by academy and assigned classes with stable pagination', () => {
+  const {context} = setup(); const calls=[];
+  const query = new Proxy({}, {get:(_,name)=>(...args)=>{calls.push([name,...args]);return query;}});
+  context.cloudClient={from:table=>{calls.push(['from',table]);return query;}};
+  vm.runInContext("makeStaffAttemptsQuery({academy_id:'academy-a'},['assigned-class'],['student-a'],50)",context);
+  const plain = JSON.parse(JSON.stringify(calls));
+  assert.ok(plain.some(c=>c[0]==='eq'&&c[1]==='tests.academy_id'&&c[2]==='academy-a'));
+  assert.ok(plain.some(c=>c[0]==='in'&&c[1]==='tests.class_id'&&c[2][0]==='assigned-class'));
+  assert.ok(plain.some(c=>c[0]==='eq'&&c[1]==='status'&&c[2]==='submitted'));
+  assert.ok(plain.some(c=>c[0]==='range'&&c[1]===50&&c[2]===99));
+});
+
+test('teacher without an assignment never queries student attempts', async () => {
+  const {context,element} = setup(); const tables=[];
+  context.cloudProfile={id:'teacher',role:'teacher',academy_id:'academy'};
+  context.cloudClient={from:table=>{tables.push(table);return {select(){return this;},eq(){return this;},order(){return this;},range:async()=>({data:[]})};}};
+  await vm.runInContext('loadStaffResults()',context);
+  assert.deepEqual(tables,['class_teachers']);
+  assert.match(element('#staffResultStatus').textContent,/담당 반이 배정되지/);
+});
+
+test('CSV preserves commas and protects formula-like names', () => {
+  const {context} = setup();
+  assert.equal(vm.runInContext('safeCsvCell("=1+1")',context),'"\'=1+1"');
+  assert.equal(vm.runInContext('safeCsvCell("a,b")',context),'"a,b"');
 });
 
 test('student practice is saved only under that student, without changing official attempts', () => {
