@@ -604,7 +604,7 @@ $('#staffResultExport').onclick = () => {
 
 // Create and assign exams using the existing protected tables.
 const examBuilder = {generation:0, rosterGeneration:0, bookGeneration:0, listGeneration:0,
-  classes:[], books:[], students:[], words:[], mixed:false, busy:false, owner:null};
+  classes:[], books:[], students:[], words:[], mixed:false, multipleMeanings:false, busy:false, owner:null};
 const originalRoleMenus = applyRoleMenus;
 applyRoleMenus = function(role) {
   originalRoleMenus(role);
@@ -646,6 +646,7 @@ async function loadExamBuilder() {
     if (cloudProfile?.id !== profile.id || generation !== examBuilder.generation) return;
     examBuilder.classes = classes; examBuilder.books = books;
     examBuilder.mixed = !features.error && features.data?.mixed_questions === true;
+    examBuilder.multipleMeanings = !features.error && features.data?.duplicate_meanings === true;
     const oldClass = $('#assignExamClass').value, oldBook = $('#assignExamBook').value;
     $('#assignExamClass').innerHTML = '<option value="">반을 선택하세요</option>' + classes.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (${c.school_year})</option>`).join('');
     $('#assignExamBook').innerHTML = '<option value="">단어장을 선택하세요</option>' + books.map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.title)}</option>`).join('');
@@ -655,7 +656,7 @@ async function loadExamBuilder() {
     $('#assignExamMixedChoice').textContent = examBuilder.mixed ? '혼합 시험 · 뜻 쓰기 + 뜻을 보고 스펠링 쓰기' : '혼합 시험 · 서버 설정 필요';
     if (!examBuilder.mixed && $('#assignExamType').value === 'mixed') $('#assignExamType').value = 'en_ko';
     updateExamType();
-    $('#assignExamStatus').textContent = !classes.length ? '배정할 반이 없습니다. 반 등록 또는 선생님 담당 반 배정을 먼저 해 주세요.' : !books.length ? '공유 단어장이 없습니다. 엑셀 단어 등록에서 단어장을 먼저 저장해 주세요.' : '반을 선택하면 해당 반에 등록된 학생이 표시됩니다.';
+    $('#assignExamStatus').textContent = !classes.length ? '배정할 반이 없습니다. 반 등록 또는 선생님 담당 반 배정을 먼저 해 주세요.' : !books.length ? '공유 단어장이 없습니다. 엑셀 단어 등록에서 단어장을 먼저 저장해 주세요.' : `반을 선택하면 해당 반에 등록된 학생이 표시됩니다.${examBuilder.multipleMeanings?' 같은 철자의 여러 뜻을 모두 정답으로 인정합니다.':' 같은 철자의 중복 출제는 방지됩니다.'}`;
     $('#assignExamSubmit').disabled = !classes.length || !books.length;
     await Promise.all([loadExamRoster(),loadExamBook(),loadAssignedExams()]);
   } catch (error) {
@@ -730,7 +731,20 @@ function updateExamType() {
 }
 $('#assignExamType').onchange = updateExamType;
 
-function buildExamPlan(input, words, eligibleIds, mixedAvailable, random = Math.random) {
+function uniqueExamWords(words) {
+  const byEnglish = new Map();
+  words.forEach(word => {
+    const key = normalize(word.english);
+    if (!key) return;
+    if (!byEnglish.has(key)) byEnglish.set(key,{...word,acceptedMeanings:[]});
+    const item=byEnglish.get(key);
+    [word.korean,...(word.acceptedAnswers||[])].filter(Boolean).forEach(meaning=>{
+      if(!item.acceptedMeanings.some(saved=>normalizeKorean(saved)===normalizeKorean(meaning)))item.acceptedMeanings.push(meaning);
+    });
+  });
+  return [...byEnglish.values()];
+}
+function buildExamPlan(input, words, eligibleIds, mixedAvailable, multipleMeaningsAvailable=false, random = Math.random) {
   const title = input.title.trim();
   if (!title || title.length > 120) throw new Error('시험 이름을 120자 이내로 입력하세요.');
   const selected = [...new Set(input.students)];
@@ -742,16 +756,18 @@ function buildExamPlan(input, words, eligibleIds, mixedAvailable, random = Math.
   if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > words.length) throw new Error('단어 범위를 확인하세요.');
   const meaning = Number(input.meaning), spelling = Number(input.spelling), count = input.type === 'mixed' ? meaning + spelling : Number(input.count);
   if (input.type === 'mixed' && (![meaning,spelling].every(n => Number.isInteger(n) && n > 0))) throw new Error('혼합시험의 각 문항 수는 1 이상의 정수로 입력하세요.');
-  if (!Number.isInteger(count) || count < 1 || count > 500 || count > end-start+1) throw new Error('문항 수는 선택 범위 이내의 1~500개로 입력하세요.');
+  if (!Number.isInteger(count) || count < 1 || count > 500) throw new Error('문항 수는 1~500개의 정수로 입력하세요.');
   const pass = Number(input.pass);
   if (!Number.isInteger(pass) || pass < 0 || pass > 100) throw new Error('합격 점수는 0~100점으로 입력하세요.');
   const parseTime = value => { if (!value) return null; const time = new Date(value); if (!Number.isFinite(time.getTime())) throw new Error('응시 시간을 확인하세요.'); return time.toISOString(); };
   const from = parseTime(input.availableFrom), until = parseTime(input.availableUntil);
   if (until && (new Date(until).getTime() <= Date.now() || (from && until <= from))) throw new Error('응시 마감은 현재와 시작 시간보다 나중이어야 합니다.');
-  const pool = words.slice(start-1,end);
+  const rangeRows=words.slice(start-1,end),pool=uniqueExamWords(rangeRows);
+  if(count>pool.length)throw new Error(`선택 범위 ${rangeRows.length}개 중 같은 철자를 제외하면 ${pool.length}개입니다. 문항 수를 ${pool.length}개 이하로 줄여 주세요.`);
   for (let i = pool.length-1; i > 0; i--) { const j = Math.floor(random()*(i+1)); [pool[i],pool[j]] = [pool[j],pool[i]]; }
   return {title,students:selected,pass,from,until,type:input.type,count,
     questions:pool.slice(0,count).map((word,index) => ({word_id:word.id,position:index+1,
+      ...(multipleMeaningsAvailable ? {accepted_answers:word.acceptedMeanings} : {}),
       ...(input.type === 'mixed' ? {question_type:index < meaning ? 'en_ko' : 'ko_en'} : {})}))};
 }
 
@@ -795,7 +811,7 @@ $('#assignExamForm').onsubmit = async event => {
   $('#assignExamSubmitStatus').textContent = '학생 명단 확인 후 시험을 배정하는 중...';
   try {
     const roster = await fetchClassRoster(classId,profile.academy_id);
-    const plan = buildExamPlan(input,examBuilder.words,roster.map(s => s.id),examBuilder.mixed);
+    const plan = buildExamPlan(input,examBuilder.words,roster.map(s => s.id),examBuilder.mixed,examBuilder.multipleMeanings);
     if (cloudProfile?.id !== profile.id) throw new Error('로그인 계정이 변경되었습니다. 다시 로그인하세요.');
     await persistAssignedExam(cloudClient,profile,classId,bookId,plan);
     $('#assignExamSubmitStatus').textContent = `배정 완료! ${plan.students.length}명에게 ${plan.count}문항을 배정했습니다.\n학생 계정의 ‘내 시험’에서 확인할 수 있습니다.`;
