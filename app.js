@@ -42,23 +42,54 @@ if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');rende
 
 // Supabase production mode. With empty config, the existing local/demo app stays available.
 const cloudConfig=window.TG_CONFIG||{};
-let cloudClient=null,cloudProfile=null;
+let cloudClient=null,cloudProfile=null,profileLoadPromise=null,profileLoadUserId=null,authGeneration=0;
 const adminState={classes:[],students:[],enrollments:[]};
 async function initCloudMode(){
   if(!cloudConfig.supabaseUrl||!cloudConfig.supabaseAnonKey)return;
   const configuredUrl=String(cloudConfig.supabaseUrl).trim().replace(/^['\"]|['\"]$/g,'');
   const supabaseUrl=new URL(configuredUrl).origin;
   cloudClient=window.supabase.createClient(supabaseUrl,cloudConfig.supabaseAnonKey);
-  const {data:{session}}=await cloudClient.auth.getSession();
-  if(session)await loadCloudProfile(session.user.id);else show('auth');
-  cloudClient.auth.onAuthStateChange(async(_event,nextSession)=>{
-    if(nextSession)await loadCloudProfile(nextSession.user.id);else{cloudProfile=null;$('#accountBtn').classList.add('hidden');show('auth')}
+  cloudClient.auth.onAuthStateChange((event,nextSession)=>{
+    // Supabase warns against awaiting database calls inside this callback.
+    // Defer them to avoid an auth lock/deadlock during sign-in and token refresh.
+    setTimeout(()=>{
+      if(event==='SIGNED_OUT'||!nextSession){resetCloudSession();return}
+      if(nextSession.user.id!==cloudProfile?.id&&nextSession.user.id!==profileLoadUserId)loadCloudProfile(nextSession.user.id);
+    },0);
   });
+  try{
+    const {data:{session},error}=await cloudClient.auth.getSession();
+    if(error)throw error;
+    if(session)await loadCloudProfile(session.user.id);else show('auth');
+  }catch(error){show('auth');$('#loginError').textContent='로그인 상태를 확인하지 못했습니다. 새로고침 후 다시 시도해 주세요.'}
+}
+function resetCloudSession(){
+  authGeneration++;profileLoadPromise=null;profileLoadUserId=null;cloudProfile=null;
+  $('#accountBtn').classList.add('hidden');$('.brand strong').textContent='TG Vocabulary';show('auth');
+}
+async function queryProfileWithRetry(userId){
+  let last;
+  for(let attempt=0;attempt<2;attempt++){
+    last=await cloudClient.from('profiles').select('id,academy_id,display_name,role,is_active').eq('id',userId).maybeSingle();
+    if(!last.error)return last;
+    if(attempt===0)await new Promise(resolve=>setTimeout(resolve,350));
+  }
+  return last;
 }
 async function loadCloudProfile(userId){
-  const {data,error}=await cloudClient.from('profiles').select('id,academy_id,display_name,role,is_active').eq('id',userId).single();
-  if(error||!data?.is_active){await cloudClient.auth.signOut();$('#loginError').textContent='등록된 활성 사용자 정보를 찾을 수 없습니다.';return}
-  cloudProfile=data;applyRoleMenus(data.role);$('#accountBtn').classList.remove('hidden');$('.brand strong').innerHTML=`TG Vocabulary <span class="role-badge">${roleLabel(data.role)}</span>`;if(data.role!=='student')await Promise.all([loadCloudBooks(),loadCloudClasses()]);show('home');
+  if(profileLoadPromise&&profileLoadUserId===userId)return profileLoadPromise;
+  const generation=authGeneration,client=cloudClient;profileLoadUserId=userId;
+  profileLoadPromise=(async()=>{
+    const {data,error}=await queryProfileWithRetry(userId);
+    if(client!==cloudClient||generation!==authGeneration)return false;
+    if(error){$('#loginError').textContent=`사용자 정보를 불러오지 못했습니다: ${error.message} · 잠시 후 다시 로그인해 주세요.`;show('auth');return false}
+    if(!data||!data.is_active){$('#loginError').textContent='등록된 활성 사용자 정보를 찾을 수 없습니다. 관리자에게 학생 계정 상태를 확인해 주세요.';await cloudClient.auth.signOut();return false}
+    cloudProfile=data;$('#loginError').textContent='';applyRoleMenus(data.role);$('#accountBtn').classList.remove('hidden');$('.brand strong').innerHTML=`TG Vocabulary <span class="role-badge">${roleLabel(data.role)}</span>`;
+    if(data.role!=='student')await Promise.all([loadCloudBooks(),loadCloudClasses()]);
+    if(client===cloudClient&&generation===authGeneration){show(data.role==='student'?'student':'home');return true}
+    return false;
+  })().finally(()=>{if(profileLoadUserId===userId){profileLoadPromise=null;profileLoadUserId=null}});
+  return profileLoadPromise;
 }
 function roleLabel(role){return({student:'학생',teacher:'선생님',admin:'관리자'})[role]||role}
 function applyRoleMenus(role){const student=role==='student';$('#adminMenuBtn').classList.toggle('hidden',role!=='admin');$('#studentMenuBtn').classList.toggle('hidden',!student);$('#statsPanel').classList.toggle('hidden',student);['#testMenuBtn','#uploadMenuBtn','#resultsMenuBtn'].forEach(id=>$(id).classList.toggle('hidden',student));if(student){state.books=[];state.results=[]}else{state.books=load(STORE.books,[]);state.results=load(STORE.results,[])}}
@@ -66,8 +97,9 @@ $('#loginForm').addEventListener('submit',async e=>{
   e.preventDefault();if(!cloudClient)return;
   const btn=$('#loginBtn');btn.disabled=true;btn.textContent='확인 중...';$('#loginError').textContent='';
   try{
-    const {error}=await cloudClient.auth.signInWithPassword({email:$('#loginEmail').value.trim().toLowerCase(),password:$('#loginPassword').value});
+    const {data,error}=await cloudClient.auth.signInWithPassword({email:$('#loginEmail').value.trim().toLowerCase(),password:$('#loginPassword').value});
     if(error)$('#loginError').textContent=loginErrorMessage(error);
+    else if(data.session)await loadCloudProfile(data.session.user.id);
   }catch(error){
     $('#loginError').textContent='Supabase 서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.';
   }finally{
@@ -357,27 +389,35 @@ async function submitCloudAttempt() {
 
 loadStudentTests = async function() {
   if (cloudProfile?.role !== 'student') return;
+  const owner = cloudProfile.id;
   const list = $('#studentTestList');
   list.innerHTML = '<p>시험과 지난 답안을 불러오는 중...</p>';
   try {
-    const assignments = checked(await cloudClient.from('test_assignments').select('test_id').eq('student_id', cloudProfile.id));
-    const ids = assignments.map(a => a.test_id);
+    const assignments = await readAllRows(() => cloudClient.from('test_assignments').select('test_id,assigned_at').eq('student_id', owner).order('assigned_at',{ascending:false}).order('test_id'));
+    const ids = [...new Set(assignments.map(a => a.test_id))];
     list.innerHTML = '';
     if (ids.length) {
       const tests = checked(await cloudClient.from('tests').select('*').in('id', ids));
-      const attempts = checked(await cloudClient.from('test_attempts').select('id,test_id,status,score,correct_count,total_count,submitted_at,attempt_number').eq('student_id', cloudProfile.id).in('test_id', ids).order('attempt_number', {ascending:false}));
+      if (tests.length !== ids.length) throw new Error(`배정 ${ids.length}건 중 시험 ${tests.length}건만 조회됐습니다. Supabase 시험 권한 설정을 확인해 주세요.`);
+      const attempts = await readAllRows(() => cloudClient.from('test_attempts').select('id,test_id,status,score,correct_count,total_count,submitted_at,attempt_number').eq('student_id', owner).in('test_id', ids).order('attempt_number', {ascending:false}).order('id'));
+      const classIds=[...new Set(tests.map(test=>test.class_id))],bookIds=[...new Set(tests.map(test=>test.book_id))];
+      const [classes,books]=await Promise.all([
+        checked(await cloudClient.from('classes').select('id,name').in('id',classIds)),
+        checked(await cloudClient.from('vocabulary_books').select('id,title').in('id',bookIds))
+      ]);
+      if(cloudProfile?.id!==owner||cloudProfile?.role!=='student')return;
       for (const test of tests) {
-        const klass = checked(await cloudClient.from('classes').select('name').eq('id', test.class_id).single());
-        const book = checked(await cloudClient.from('vocabulary_books').select('title').eq('id', test.book_id).single());
+        const klass = classes.find(item=>item.id===test.class_id);
+        const book = books.find(item=>item.id===test.book_id);
         const row = document.createElement('div'); row.className = 'card form-card';
-        row.innerHTML = `<h3>${escapeHtml(test.title)}</h3><p>${escapeHtml(klass.name)} · ${escapeHtml(book.title)} · ${test.question_count}문제</p>`;
+        row.innerHTML = `<h3>${escapeHtml(test.title)}</h3><p>${escapeHtml(klass?.name||'배정 반')} · ${escapeHtml(book?.title||'단어장')} · ${test.question_count}문제</p>`;
         const available = test.is_published && (!test.available_from || new Date(test.available_from).getTime() <= Date.now()) && (!test.available_until || new Date(test.available_until).getTime() >= Date.now());
         const history = attempts.filter(a => a.test_id === test.id);
         const pending = history.find(a => a.status === 'in_progress');
-        if (available) addStudentButton(row, pending ? '시험 다시 시작' : '시험 보기', () => startStudentAttempt(test, klass.name, book.title, pending));
+        if (available) addStudentButton(row, pending ? '시험 다시 시작' : '시험 보기', () => startStudentAttempt(test, klass?.name||'배정 반', book?.title||'단어장', pending));
         else row.insertAdjacentHTML('beforeend', '<p>현재 응시 기간이 아닙니다.</p>');
         history.filter(a => a.status === 'submitted').forEach(a => addStudentButton(row,
-          `${a.attempt_number}회 · ${a.score}점 · 답안·오답 보기`, () => openStudentAttempt(test, a, klass.name, book.title)));
+          `${a.attempt_number}회 · ${a.score}점 · 답안·오답 보기`, () => openStudentAttempt(test, a, klass?.name||'배정 반', book?.title||'단어장')));
         list.append(row);
       }
     }
@@ -388,7 +428,9 @@ loadStudentTests = async function() {
     }
     if (!ids.length && !practices.length) list.innerHTML = '<p>아직 배정된 시험이 없습니다.</p>';
   } catch (error) {
-    list.textContent = `시험을 불러오지 못했습니다: ${error.message}`;
+    if(cloudProfile?.id!==owner)return;
+    list.innerHTML = `<div class="card tip"><strong>시험을 불러오지 못했습니다.</strong><p>${escapeHtml(error.message)}</p></div>`;
+    addStudentButton(list,'시험 목록 다시 불러오기',loadStudentTests);
   }
 };
 
