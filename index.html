@@ -126,10 +126,20 @@
       </section>
 
       <section id="resultsView" class="view">
-        <div class="section-head"><button class="back" data-view="home">←</button><div><h2>학생별 성적</h2><p>이 기기에 저장된 시험 기록입니다.</p></div></div>
+        <div class="section-head"><button class="back" data-view="home">←</button><div><h2>학생별 성적</h2><p id="resultsDescription">학생 계정으로 제출한 시험 결과를 확인하세요.</p></div></div>
+        <label>기록 선택<select id="resultSource"><option value="cloud">학생 계정 시험 · 학원 공유</option><option value="local">이 기기에서 진행한 시험</option></select></label>
+        <div id="staffResults" class="hidden">
+          <div class="card form-card"><label>반<select id="staffResultClass"><option value="all">전체 반</option></select></label><label>학생 이름<input id="staffResultSearch" placeholder="학생 이름 검색" /></label><button id="staffResultFind" class="primary">조회·새로고침</button></div>
+          <p id="staffResultStatus" role="status"></p>
+          <div id="staffResultList" class="results-list"></div>
+          <button id="staffResultMore" class="secondary full hidden">결과 더 보기</button>
+          <button id="staffResultExport" class="secondary full">조회된 성적 CSV 내려받기</button>
+        </div>
+        <div id="localResults">
         <div class="card result-filter"><select id="resultClass"><option value="all">전체 반</option></select><input id="resultSearch" placeholder="학생 이름 검색" /></div>
         <div id="resultsList" class="results-list"></div>
         <button id="downloadResultsBtn" class="secondary full">성적 CSV 내려받기</button>
+        </div>
       </section>
 
       <section id="adminView" class="view">
@@ -149,6 +159,6 @@
   <script src="config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=15"></script>
+  <script src="app.js?v=16"></script>
 </body>
 </html>

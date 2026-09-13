@@ -399,3 +399,161 @@ function addStudentButton(parent, label, action) {
   };
   parent.append(button);
 }
+
+// Staff shared results. Keep server data out of shared browser result storage.
+const staffResultsState = {generation:0, owner:null, classes:[], students:[], rows:[], offset:0, more:false};
+const localRenderResults = renderResults;
+function isStaff() { return !!cloudClient && ['admin','teacher'].includes(cloudProfile?.role); }
+renderResults = function() {
+  const staff = isStaff();
+  $('#resultSource').disabled = !staff;
+  if (!staff) $('#resultSource').value = 'local';
+  const shared = staff && $('#resultSource').value === 'cloud';
+  $('#staffResults').classList.toggle('hidden', !shared);
+  $('#localResults').classList.toggle('hidden', shared);
+  $('#resultsDescription').textContent = shared ? '학생 계정으로 제출한 시험입니다. 관리자는 학원 전체, 선생님은 담당 반을 조회합니다.' : '이 브라우저에 저장된 시험 기록입니다.';
+  if (shared) loadStaffResults();
+  else { staffResultsState.generation++; localRenderResults(); }
+};
+$('#resultSource').onchange = () => renderResults();
+$('#staffResultFind').onclick = () => loadStaffResults();
+$('#staffResultSearch').onkeydown = event => { if (event.key === 'Enter') loadStaffResults(); };
+$('#staffResultClass').onchange = () => loadStaffResults();
+$('#staffResultMore').onclick = () => loadStaffResults(true);
+
+async function readAllRows(makeQuery) {
+  const rows = [];
+  for (let offset = 0; ; offset += 500) {
+    const page = checked(await makeQuery().range(offset, offset + 499));
+    rows.push(...page);
+    if (page.length < 500) return rows;
+  }
+}
+
+function makeStaffAttemptsQuery(profile, classIds, studentIds, offset) {
+  let query = cloudClient.from('test_attempts')
+    .select('id,test_id,student_id,attempt_number,score,correct_count,total_count,submitted_at,tests!inner(id,title,class_id,book_id,test_type,academy_id)')
+    .eq('status','submitted').eq('tests.academy_id',profile.academy_id)
+    .in('tests.class_id',classIds);
+  if (studentIds) query = query.in('student_id',studentIds);
+  return query.order('submitted_at',{ascending:false}).order('id').range(offset,offset + 49);
+}
+
+async function loadStaffResults(more = false) {
+  if (!isStaff()) return;
+  const profile = {...cloudProfile};
+  const generation = ++staffResultsState.generation;
+  const current = () => generation === staffResultsState.generation && cloudProfile?.id === profile.id && isStaff();
+  $('#staffResultFind').disabled = true;
+  $('#staffResultMore').disabled = true;
+  $('#staffResultExport').disabled = true;
+  $('#staffResultStatus').textContent = '성적을 불러오는 중...';
+  try {
+    if (!more || staffResultsState.owner !== profile.id) {
+      more = false;
+      staffResultsState.rows = []; staffResultsState.offset = 0; staffResultsState.more = false;
+      $('#staffResultList').innerHTML = '';
+      $('#staffResultMore').classList.add('hidden');
+      let allowed = null;
+      if (profile.role === 'teacher') {
+        const assignments = await readAllRows(() => cloudClient.from('class_teachers').select('class_id').eq('teacher_id',profile.id).order('class_id'));
+        allowed = assignments.map(a => a.class_id);
+      }
+      const classes = allowed && !allowed.length ? [] : await readAllRows(() => {
+        let query = cloudClient.from('classes').select('id,name,school_year').eq('academy_id',profile.academy_id);
+        if (allowed) query = query.in('id',allowed);
+        return query.order('id');
+      });
+      const students = classes.length ? await readAllRows(() => cloudClient.from('profiles').select('id,display_name').eq('academy_id',profile.academy_id).eq('role','student').order('id')) : [];
+      if (!current()) return;
+      staffResultsState.owner = profile.id;
+      staffResultsState.classes = classes; staffResultsState.students = students;
+      const selected = $('#staffResultClass').value;
+      $('#staffResultClass').innerHTML = '<option value="all">전체 반</option>' + classes.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (${c.school_year})</option>`).join('');
+      $('#staffResultClass').value = classes.some(c => c.id === selected) ? selected : 'all';
+      staffResultsState.filterClass = $('#staffResultClass').value;
+      staffResultsState.filterName = normalize($('#staffResultSearch').value);
+    }
+    const classIds = staffResultsState.classes.filter(c => staffResultsState.filterClass === 'all' || c.id === staffResultsState.filterClass).map(c => c.id);
+    const studentIds = staffResultsState.filterName ? staffResultsState.students.filter(s => normalize(s.display_name).includes(staffResultsState.filterName)).map(s => s.id) : null;
+    if (!classIds.length || (studentIds && !studentIds.length)) {
+      $('#staffResultStatus').textContent = !classIds.length ? (profile.role === 'teacher' ? '담당 반이 배정되지 않았습니다. 관리자에게 담당 반 배정을 요청해 주세요.' : '등록된 반이 없습니다.') : '이름에 맞는 학생이 없습니다.';
+      return;
+    }
+    const page = checked(await makeStaffAttemptsQuery(profile,classIds,studentIds,staffResultsState.offset));
+    if (!current()) return;
+    staffResultsState.rows.push(...page);
+    staffResultsState.offset += page.length;
+    staffResultsState.more = page.length === 50;
+    renderStaffRows();
+  } catch (error) {
+    if (current()) $('#staffResultStatus').textContent = `성적 조회 실패: ${error.message} · 조회·새로고침을 눌러 다시 시도해 주세요.`;
+  } finally {
+    if (current()) {
+      $('#staffResultFind').disabled = false;
+      $('#staffResultMore').disabled = false;
+      $('#staffResultExport').disabled = !staffResultsState.rows.length;
+    }
+  }
+}
+
+function staffRowInfo(row) {
+  const test = row.tests;
+  return {test, student:staffResultsState.students.find(s => s.id === row.student_id)?.display_name || '이름 조회 불가',
+    className:staffResultsState.classes.find(c => c.id === test.class_id)?.name || '반 조회 불가'};
+}
+
+function renderStaffRows() {
+  const rows = staffResultsState.rows;
+  $('#staffResultStatus').textContent = rows.length ? `${rows.length}건 조회 · ${staffResultsState.more ? '더 보기를 누르면 이전 기록을 불러옵니다.' : '조회 완료'}` : '제출된 시험 결과가 없습니다.';
+  $('#staffResultMore').classList.toggle('hidden',!staffResultsState.more);
+  $('#staffResultList').innerHTML = '';
+  rows.forEach(row => {
+    const {test,student,className} = staffRowInfo(row);
+    const card = document.createElement('div'); card.className = 'card form-card';
+    card.innerHTML = `<strong>${escapeHtml(student)} · ${escapeHtml(className)}</strong><span>${escapeHtml(test.title)} · ${row.attempt_number}회</span><small>${new Date(row.submitted_at).toLocaleString('ko-KR')}</small><b>${row.score}점 · ${row.total_count}문제 중 ${row.correct_count}문제 정답</b>`;
+    addStudentButton(card,'답안·오답 보기',() => openStaffResult(row));
+    $('#staffResultList').append(card);
+  });
+}
+
+async function openStaffResult(row) {
+  if (!isStaff() || staffResultsState.owner !== cloudProfile.id) return;
+  const owner = cloudProfile.id;
+  const {test,student,className} = staffRowInfo(row);
+  const saved = checked(await cloudClient.from('attempt_answers').select('question_id,submitted_answer,correct_answer_snapshot,is_correct').eq('attempt_id',row.id));
+  const words = await fetchTestWords(test.id);
+  if (cloudProfile?.id !== owner || !isStaff()) return;
+  if (saved.length !== row.total_count) throw new Error('전체 답안을 불러오지 못했습니다. 다시 조회해 주세요.');
+  const type = test.test_type.replaceAll('_','-');
+  const answers = saved.map(a => {
+    const word = words.find(w => w.questionId === a.question_id);
+    if (!word) throw new Error('답안의 단어를 찾을 수 없습니다.');
+    return {word, type, answer:a.submitted_answer, correct:a.correct_answer_snapshot,isCorrect:a.is_correct};
+  });
+  showSavedResult({id:row.id, student, className, bookId:test.book_id, bookName:test.title,
+    score:row.score,correct:row.correct_count,total:row.total_count,type,answers});
+  $('#retryWrongBtn').classList.add('hidden');
+  let back = $('#staffResultsBack');
+  if (!back) {
+    back = document.createElement('button'); back.id = 'staffResultsBack'; back.className = 'secondary full';
+    back.textContent = '학생 성적 목록으로';
+    back.onclick = () => { back.remove(); show('results'); };
+  }
+  $('#wrongAnswers').append(back);
+}
+
+function safeCsvCell(value) {
+  const text = String(value ?? '');
+  return '"' + (/^[\s]*[=+@-]/.test(text) ? "'" + text : text).replaceAll('"','""') + '"';
+}
+$('#staffResultExport').onclick = () => {
+  if (!isStaff() || staffResultsState.owner !== cloudProfile.id || !staffResultsState.rows.length) return;
+  const data = [['시험일','반','학생','시험명','응시회차','점수','정답수','문제수'], ...staffResultsState.rows.map(row => {
+    const {test,student,className} = staffRowInfo(row);
+    return [new Date(row.submitted_at).toLocaleString('ko-KR'),className,student,test.title,row.attempt_number,row.score,row.correct_count,row.total_count];
+  })];
+  const url = URL.createObjectURL(new Blob(['\ufeff' + data.map(row => row.map(safeCsvCell).join(',')).join('\n')],{type:'text/csv;charset=utf-8'}));
+  const link = document.createElement('a'); link.href = url; link.download = 'TG_조회된_학생성적.csv'; link.click();
+  setTimeout(() => URL.revokeObjectURL(url),1000);
+};
