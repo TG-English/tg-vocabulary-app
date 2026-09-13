@@ -53,6 +53,9 @@
           <button id="studentMenuBtn" class="menu-card pink hidden" data-view="student">
             <span class="menu-icon">▶</span><strong>내 시험</strong><small>배정된 시험과 결과 확인</small>
           </button>
+          <button id="assignExamMenuBtn" class="menu-card blue hidden" data-view="assignExam">
+            <span class="menu-icon">▤</span><strong>시험 만들기·배정</strong><small>반·학생 선택과 응시 현황</small>
+          </button>
           <button id="testMenuBtn" class="menu-card pink" data-view="setup">
             <span class="menu-icon">✎</span><strong>단어 시험 시작</strong><small>학생과 시험 유형 선택</small>
           </button>
@@ -74,6 +77,31 @@
       <section id="studentView" class="view">
         <div class="section-head"><button class="back" data-view="home">←</button><div><h2>내 시험</h2><p>나에게 배정된 시험만 표시됩니다.</p></div></div>
         <div id="studentTestList" class="management-list"><div class="loading-row">불러오는 중...</div></div>
+      </section>
+
+      <section id="assignExamView" class="view">
+        <div class="section-head"><button class="back" data-view="home">←</button><div><h2>시험 만들기·배정</h2><p>반을 고르고 시험을 볼 학생을 선택하세요.</p></div></div>
+        <p id="assignExamStatus" role="status"></p>
+        <form id="assignExamForm" class="card form-card">
+          <label>시험 이름<input id="assignExamTitle" required maxlength="120" placeholder="예: 중1 능률보카 Day 1~4" /></label>
+          <label>반<select id="assignExamClass" required><option value="">반을 선택하세요</option></select></label>
+          <fieldset><legend>응시 학생</legend><div class="button-row"><button id="assignExamAll" type="button" class="secondary">전체 선택</button><button id="assignExamNone" type="button" class="secondary">선택 해제</button></div><p id="assignExamStudentCount">반을 먼저 선택하세요.</p><div id="assignExamStudents" class="exam-roster"></div></fieldset>
+          <label>단어장<select id="assignExamBook" required><option value="">단어장을 선택하세요</option></select></label>
+          <p>학원 공유 단어장만 배정할 수 있습니다. 단어 범위는 업로드한 순서로 선택합니다.</p>
+          <div class="mixed-options"><label>시작 단어 번호<input id="assignExamFrom" type="number" min="1" step="1" value="1" required /></label><label>끝 단어 번호<input id="assignExamTo" type="number" min="1" step="1" value="1" required /></label></div>
+          <p id="assignExamRange">단어장을 선택하세요.</p>
+          <label>시험 유형<select id="assignExamType"><option value="en_ko">영어를 보고 뜻 쓰기</option><option value="ko_en">뜻을 보고 스펠링 쓰기</option><option value="mixed" id="assignExamMixedChoice" disabled>혼합 시험 · 서버 설정 확인 중</option><option value="spelling">소리를 듣고 스펠링 쓰기</option></select></label>
+          <label id="assignExamSingleCount">문항 수<input id="assignExamCount" type="number" min="1" max="500" step="1" value="20" required /></label>
+          <div id="assignExamMixedCounts" class="mixed-options hidden"><label>뜻 쓰기 문항 수<input id="assignExamMeaning" type="number" min="1" max="500" step="1" value="20" /></label><label>뜻을 보고 스펠링 쓰기 문항 수<input id="assignExamSpelling" type="number" min="1" max="500" step="1" value="10" /></label></div>
+          <label>합격 점수<input id="assignExamPass" type="number" min="0" max="100" step="1" value="80" required /></label>
+          <label>응시 시작<input id="assignExamStart" type="datetime-local" /><small>비워 두면 배정 즉시 시작합니다.</small></label>
+          <label>응시 마감<input id="assignExamEnd" type="datetime-local" /><small>비워 두면 마감 없이 응시할 수 있습니다.</small></label>
+          <p>선택한 범위에서 문항을 뽑아 모든 배정 학생에게 동일하게 출제합니다.</p>
+          <button id="assignExamSubmit" class="primary" type="submit">선택 학생에게 시험 배정</button>
+          <p id="assignExamSubmitStatus" role="status"></p>
+        </form>
+        <div class="section-head"><h3>배정한 시험</h3><button id="assignedExamRefresh" class="secondary">새로고침</button></div>
+        <div id="assignedExamList" class="book-list"></div>
       </section>
 
       <section id="uploadView" class="view">
@@ -159,6 +187,6 @@
   <script src="config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=16"></script>
+  <script src="app.js?v=17"></script>
 </body>
 </html>

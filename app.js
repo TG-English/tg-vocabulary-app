@@ -278,13 +278,14 @@ function checked(response) {
 }
 
 async function fetchTestWords(testId) {
-  const questions = checked(await cloudClient.from('test_questions').select('id,word_id,position').eq('test_id', testId).order('position'));
+  const questions = await readAllRows(() => cloudClient.from('test_questions').select('*').eq('test_id', testId).order('position'));
   if (!questions.length) return [];
   const words = checked(await cloudClient.from('vocabulary_words').select('id,english,korean,accepted_answers').in('id', questions.map(q => q.word_id)));
   return questions.map(q => {
     const word = words.find(w => w.id === q.word_id);
     if (!word) throw new Error('시험 단어를 불러오지 못했습니다. 선생님께 문의해 주세요.');
-    return {english:word.english, korean:word.korean, acceptedAnswers:word.accepted_answers, questionId:q.id};
+    return {english:word.english, korean:word.korean, acceptedAnswers:word.accepted_answers, questionId:q.id,
+      ...(q.question_type ? {questionType:q.question_type.replaceAll('_','-')} : {})};
   });
 }
 
@@ -295,7 +296,8 @@ async function openStudentAttempt(test, attempt, className, bookName) {
   const answers = saved.map(a => {
     const word = words.find(w => w.questionId === a.question_id);
     if (!word) throw new Error('저장된 답안의 단어를 찾을 수 없습니다.');
-    return {word:{...word, questionType:type}, answer:a.submitted_answer, correct:a.correct_answer_snapshot, isCorrect:a.is_correct, type};
+    const questionType = word.questionType || type;
+    return {word:{...word, questionType}, answer:a.submitted_answer, correct:a.correct_answer_snapshot, isCorrect:a.is_correct, type:questionType};
   });
   showSavedResult({id:attempt.id, date:attempt.submitted_at, student:cloudProfile.display_name,
     className, bookId:test.book_id, bookName, type, answers,
@@ -529,7 +531,7 @@ async function openStaffResult(row) {
   const answers = saved.map(a => {
     const word = words.find(w => w.questionId === a.question_id);
     if (!word) throw new Error('답안의 단어를 찾을 수 없습니다.');
-    return {word, type, answer:a.submitted_answer, correct:a.correct_answer_snapshot,isCorrect:a.is_correct};
+    return {word, type:word.questionType || type, answer:a.submitted_answer, correct:a.correct_answer_snapshot,isCorrect:a.is_correct};
   });
   showSavedResult({id:row.id, student, className, bookId:test.book_id, bookName:test.title,
     score:row.score,correct:row.correct_count,total:row.total_count,type,answers});
@@ -557,3 +559,247 @@ $('#staffResultExport').onclick = () => {
   const link = document.createElement('a'); link.href = url; link.download = 'TG_조회된_학생성적.csv'; link.click();
   setTimeout(() => URL.revokeObjectURL(url),1000);
 };
+
+// Create and assign exams using the existing protected tables.
+const examBuilder = {generation:0, rosterGeneration:0, bookGeneration:0, listGeneration:0,
+  classes:[], books:[], students:[], words:[], mixed:false, busy:false, owner:null};
+const originalRoleMenus = applyRoleMenus;
+applyRoleMenus = function(role) {
+  originalRoleMenus(role);
+  $('#assignExamMenuBtn').classList.toggle('hidden', !['admin','teacher'].includes(role));
+};
+const showBeforeAssignments = show;
+show = function(view) {
+  if (view === 'assignExam' && !isStaff()) return toast('관리자와 선생님만 이용할 수 있습니다.');
+  showBeforeAssignments(view);
+  if (view === 'assignExam') loadExamBuilder();
+};
+if (cloudProfile) applyRoleMenus(cloudProfile.role);
+
+async function staffAssignableClasses(profile) {
+  let ids = null;
+  if (profile.role === 'teacher') {
+    ids = (await readAllRows(() => cloudClient.from('class_teachers').select('class_id').eq('teacher_id',profile.id).order('class_id'))).map(c => c.class_id);
+    if (!ids.length) return [];
+  }
+  return readAllRows(() => {
+    let query = cloudClient.from('classes').select('id,name,school_year').eq('academy_id',profile.academy_id).eq('is_active',true);
+    if (ids) query = query.in('id',ids);
+    return query.order('id');
+  });
+}
+
+async function loadExamBuilder() {
+  if (!isStaff() || examBuilder.busy) return;
+  const profile = {...cloudProfile}, generation = ++examBuilder.generation;
+  examBuilder.owner = profile.id;
+  examBuilder.students = []; examBuilder.words = [];
+  $('#assignExamSubmit').disabled = true;
+  $('#assignExamStatus').textContent = '반과 단어장을 불러오는 중...';
+  $('#assignExamStudents').innerHTML = '';
+  try {
+    const classes = await staffAssignableClasses(profile);
+    const books = await readAllRows(() => cloudClient.from('vocabulary_books').select('id,title').eq('academy_id',profile.academy_id).order('id'));
+    const features = await cloudClient.rpc('tg_exam_features');
+    if (cloudProfile?.id !== profile.id || generation !== examBuilder.generation) return;
+    examBuilder.classes = classes; examBuilder.books = books;
+    examBuilder.mixed = !features.error && features.data?.mixed_questions === true;
+    const oldClass = $('#assignExamClass').value, oldBook = $('#assignExamBook').value;
+    $('#assignExamClass').innerHTML = '<option value="">반을 선택하세요</option>' + classes.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (${c.school_year})</option>`).join('');
+    $('#assignExamBook').innerHTML = '<option value="">단어장을 선택하세요</option>' + books.map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.title)}</option>`).join('');
+    if (classes.some(c => c.id === oldClass)) $('#assignExamClass').value = oldClass;
+    if (books.some(b => b.id === oldBook)) $('#assignExamBook').value = oldBook;
+    $('#assignExamMixedChoice').disabled = !examBuilder.mixed;
+    $('#assignExamMixedChoice').textContent = examBuilder.mixed ? '혼합 시험 · 뜻 쓰기 + 뜻을 보고 스펠링 쓰기' : '혼합 시험 · 서버 설정 필요';
+    if (!examBuilder.mixed && $('#assignExamType').value === 'mixed') $('#assignExamType').value = 'en_ko';
+    updateExamType();
+    $('#assignExamStatus').textContent = !classes.length ? '배정할 반이 없습니다. 반 등록 또는 선생님 담당 반 배정을 먼저 해 주세요.' : !books.length ? '공유 단어장이 없습니다. 엑셀 단어 등록에서 단어장을 먼저 저장해 주세요.' : '반을 선택하면 해당 반에 등록된 학생이 표시됩니다.';
+    $('#assignExamSubmit').disabled = !classes.length || !books.length;
+    await Promise.all([loadExamRoster(),loadExamBook(),loadAssignedExams()]);
+  } catch (error) {
+    if (generation === examBuilder.generation) $('#assignExamStatus').textContent = `불러오기 실패: ${error.message}`;
+  }
+}
+
+async function fetchClassRoster(classId, academyId) {
+  const memberships = await readAllRows(() => cloudClient.from('class_students').select('student_id,student_number').eq('class_id',classId).eq('is_active',true).order('student_id'));
+  const students = [];
+  for (let offset = 0; offset < memberships.length; offset += 200) {
+    const ids = memberships.slice(offset,offset + 200).map(m => m.student_id);
+    const page = checked(await cloudClient.from('profiles').select('id,display_name').eq('academy_id',academyId).eq('role','student').eq('is_active',true).in('id',ids));
+    students.push(...page);
+  }
+  return students.map(s => ({...s, studentNumber:memberships.find(m => m.student_id === s.id)?.student_number})).sort((a,b) => a.display_name.localeCompare(b.display_name,'ko'));
+}
+
+async function loadExamRoster() {
+  const generation = ++examBuilder.rosterGeneration, owner = cloudProfile?.id;
+  const classId = $('#assignExamClass').value;
+  examBuilder.students = [];
+  $('#assignExamStudents').innerHTML = '';
+  $('#assignExamStudentCount').textContent = classId ? '학생을 불러오는 중...' : '반을 먼저 선택하세요.';
+  if (!isStaff() || !examBuilder.classes.some(c => c.id === classId)) return;
+  try {
+    const students = await fetchClassRoster(classId,cloudProfile.academy_id);
+    if (generation !== examBuilder.rosterGeneration || cloudProfile?.id !== owner) return;
+    examBuilder.students = students;
+    $('#assignExamStudents').innerHTML = students.map(s => `<label><input type="checkbox" name="examStudent" value="${escapeHtml(s.id)}" /><span>${escapeHtml(s.display_name)}${s.studentNumber ? ` · ${escapeHtml(s.studentNumber)}번` : ''}</span></label>`).join('');
+    $$('input[name="examStudent"]').forEach(input => input.onchange = updateExamStudentCount);
+    updateExamStudentCount();
+  } catch (error) {
+    if (generation === examBuilder.rosterGeneration) $('#assignExamStudentCount').textContent = `학생 조회 실패: ${error.message}`;
+  }
+}
+function selectedExamStudents() { return Array.from($$('input[name="examStudent"]:checked')).map(input => input.value); }
+function updateExamStudentCount() {
+  $('#assignExamStudentCount').textContent = examBuilder.students.length ? `${examBuilder.students.length}명 중 ${selectedExamStudents().length}명 선택` : '이 반에 배정된 활성 학생 계정이 없습니다. 학원 관리에서 학생을 먼저 배정해 주세요.';
+}
+$('#assignExamAll').onclick = () => { $$('input[name="examStudent"]').forEach(input => input.checked = true); updateExamStudentCount(); };
+$('#assignExamNone').onclick = () => { $$('input[name="examStudent"]').forEach(input => input.checked = false); updateExamStudentCount(); };
+$('#assignExamClass').onchange = () => { loadExamRoster(); loadAssignedExams(); };
+
+async function loadExamBook() {
+  const generation = ++examBuilder.bookGeneration, owner = cloudProfile?.id;
+  const bookId = $('#assignExamBook').value;
+  examBuilder.words = [];
+  $('#assignExamRange').textContent = bookId ? '단어를 불러오는 중...' : '단어장을 선택하세요.';
+  if (!isStaff() || !examBuilder.books.some(b => b.id === bookId)) return;
+  try {
+    const words = await readAllRows(() => cloudClient.from('vocabulary_words').select('id,english,korean,position').eq('book_id',bookId).order('position').order('id'));
+    if (generation !== examBuilder.bookGeneration || cloudProfile?.id !== owner) return;
+    examBuilder.words = words;
+    $('#assignExamFrom').value = 1; $('#assignExamTo').value = words.length || 1;
+    $('#assignExamFrom').max = $('#assignExamTo').max = words.length;
+    updateExamRange();
+  } catch (error) { if (generation === examBuilder.bookGeneration) $('#assignExamRange').textContent = `단어 조회 실패: ${error.message}`; }
+}
+function updateExamRange() {
+  const start = Number($('#assignExamFrom').value), end = Number($('#assignExamTo').value);
+  const words = examBuilder.words;
+  $('#assignExamRange').textContent = Number.isInteger(start) && Number.isInteger(end) && start >= 1 && end >= start && end <= words.length ? `${start}~${end}번 · ${end-start+1}개: ${words[start-1].english} ~ ${words[end-1].english}` : '유효한 단어 범위를 입력하세요.';
+}
+$('#assignExamBook').onchange = loadExamBook;
+$('#assignExamFrom').oninput = $('#assignExamTo').oninput = updateExamRange;
+function updateExamType() {
+  const mixed = $('#assignExamType').value === 'mixed';
+  $('#assignExamSingleCount').classList.toggle('hidden',mixed);
+  $('#assignExamMixedCounts').classList.toggle('hidden',!mixed);
+  $('#assignExamCount').required = !mixed;
+}
+$('#assignExamType').onchange = updateExamType;
+
+function buildExamPlan(input, words, eligibleIds, mixedAvailable, random = Math.random) {
+  const title = input.title.trim();
+  if (!title || title.length > 120) throw new Error('시험 이름을 120자 이내로 입력하세요.');
+  const selected = [...new Set(input.students)];
+  if (!selected.length) throw new Error('시험을 볼 학생을 한 명 이상 선택하세요.');
+  if (selected.some(id => !eligibleIds.includes(id))) throw new Error('학생의 반 배정이 변경되었습니다. 학생 목록을 새로 불러와 주세요.');
+  if (!['en_ko','ko_en','spelling','mixed'].includes(input.type)) throw new Error('시험 유형을 확인하세요.');
+  if (input.type === 'mixed' && !mixedAvailable) throw new Error('혼합시험 서버 설정을 먼저 완료해 주세요.');
+  const start = Number(input.start), end = Number(input.end);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > words.length) throw new Error('단어 범위를 확인하세요.');
+  const meaning = Number(input.meaning), spelling = Number(input.spelling), count = input.type === 'mixed' ? meaning + spelling : Number(input.count);
+  if (input.type === 'mixed' && (![meaning,spelling].every(n => Number.isInteger(n) && n > 0))) throw new Error('혼합시험의 각 문항 수는 1 이상의 정수로 입력하세요.');
+  if (!Number.isInteger(count) || count < 1 || count > 500 || count > end-start+1) throw new Error('문항 수는 선택 범위 이내의 1~500개로 입력하세요.');
+  const pass = Number(input.pass);
+  if (!Number.isInteger(pass) || pass < 0 || pass > 100) throw new Error('합격 점수는 0~100점으로 입력하세요.');
+  const parseTime = value => { if (!value) return null; const time = new Date(value); if (!Number.isFinite(time.getTime())) throw new Error('응시 시간을 확인하세요.'); return time.toISOString(); };
+  const from = parseTime(input.availableFrom), until = parseTime(input.availableUntil);
+  if (until && (new Date(until).getTime() <= Date.now() || (from && until <= from))) throw new Error('응시 마감은 현재와 시작 시간보다 나중이어야 합니다.');
+  const pool = words.slice(start-1,end);
+  for (let i = pool.length-1; i > 0; i--) { const j = Math.floor(random()*(i+1)); [pool[i],pool[j]] = [pool[j],pool[i]]; }
+  return {title,students:selected,pass,from,until,type:input.type,count,
+    questions:pool.slice(0,count).map((word,index) => ({word_id:word.id,position:index+1,
+      ...(input.type === 'mixed' ? {question_type:index < meaning ? 'en_ko' : 'ko_en'} : {})}))};
+}
+
+async function persistAssignedExam(client, profile, classId, bookId, plan) {
+  let testId;
+  try {
+    const exam = checked(await client.from('tests').insert({academy_id:profile.academy_id,class_id:classId,book_id:bookId,created_by:profile.id,
+      title:plan.title,test_type:plan.type === 'mixed' ? 'en_ko' : plan.type,question_count:plan.count,pass_score:plan.pass,
+      available_from:plan.from,available_until:plan.until,is_published:false}).select('id').single());
+    testId = exam.id;
+    for (let offset = 0; offset < plan.questions.length; offset += 200) checked(await client.from('test_questions').insert(plan.questions.slice(offset,offset+200).map(q => ({...q,test_id:testId}))));
+    for (let offset = 0; offset < plan.students.length; offset += 200) checked(await client.from('test_assignments').insert(plan.students.slice(offset,offset+200).map(id => ({test_id:testId,student_id:id}))));
+    checked(await client.from('tests').update({is_published:true}).eq('id',testId).select('id').single());
+    return testId;
+  } catch (error) {
+    if (testId) {
+      // A lost publish response must not delete an exam that was actually published.
+      const status = await client.from('tests').select('id,is_published').eq('id',testId).single();
+      if (!status.error && status.data?.is_published) return testId;
+      if (!status.error && status.data?.is_published === false) {
+        const cleanup = await client.from('tests').delete().eq('id',testId).eq('is_published',false);
+        if (cleanup.error) throw new Error(`${error.message} · 미완료 시험이 남았습니다. 배정한 시험 목록을 확인하세요.`);
+      } else throw new Error('저장 결과를 확인하지 못했습니다. 중복 배정 전에 배정한 시험 목록을 새로고침하세요.');
+    }
+    throw error;
+  }
+}
+
+$('#assignExamForm').onsubmit = async event => {
+  event.preventDefault();
+  if (!isStaff() || examBuilder.busy || examBuilder.owner !== cloudProfile.id) return;
+  const profile = {...cloudProfile}, classId = $('#assignExamClass').value, bookId = $('#assignExamBook').value;
+  if (!examBuilder.classes.some(c => c.id === classId) || !examBuilder.books.some(b => b.id === bookId)) return toast('반과 공유 단어장을 선택하세요.');
+  const input = {title:$('#assignExamTitle').value,students:selectedExamStudents(),type:$('#assignExamType').value,
+    start:$('#assignExamFrom').value,end:$('#assignExamTo').value,count:$('#assignExamCount').value,meaning:$('#assignExamMeaning').value,
+    spelling:$('#assignExamSpelling').value,pass:$('#assignExamPass').value,availableFrom:$('#assignExamStart').value,availableUntil:$('#assignExamEnd').value};
+  examBuilder.busy = true;
+  const controls = Array.from($('#assignExamForm').querySelectorAll('input,select,button'));
+  const disabledStates = controls.map(control => control.disabled);
+  controls.forEach(control => control.disabled = true);
+  $('#assignExamSubmitStatus').textContent = '학생 명단 확인 후 시험을 배정하는 중...';
+  try {
+    const roster = await fetchClassRoster(classId,profile.academy_id);
+    const plan = buildExamPlan(input,examBuilder.words,roster.map(s => s.id),examBuilder.mixed);
+    if (cloudProfile?.id !== profile.id) throw new Error('로그인 계정이 변경되었습니다. 다시 로그인하세요.');
+    await persistAssignedExam(cloudClient,profile,classId,bookId,plan);
+    $('#assignExamSubmitStatus').textContent = `배정 완료! ${plan.students.length}명에게 ${plan.count}문항을 배정했습니다.\n학생 계정의 ‘내 시험’에서 확인할 수 있습니다.`;
+    $('#assignExamTitle').value = '';
+    $$('input[name="examStudent"]').forEach(input => input.checked = false);
+    updateExamStudentCount();
+    await loadAssignedExams();
+  } catch (error) { $('#assignExamSubmitStatus').textContent = `배정 실패: ${error.message}`; }
+  finally { examBuilder.busy = false; controls.forEach((control,index) => control.disabled = disabledStates[index]); }
+};
+
+$('#assignedExamRefresh').onclick = loadAssignedExams;
+async function loadAssignedExams() {
+  if (!isStaff()) return;
+  const generation = ++examBuilder.listGeneration, owner = cloudProfile.id;
+  const selectedClass = $('#assignExamClass').value;
+  const ids = examBuilder.classes.filter(c => !selectedClass || c.id === selectedClass).map(c => c.id);
+  $('#assignedExamList').textContent = '배정한 시험을 불러오는 중...';
+  if (!ids.length) { $('#assignedExamList').textContent = '조회할 반이 없습니다.'; return; }
+  try {
+    const tests = checked(await cloudClient.from('tests').select('id,title,class_id,question_count,is_published,available_from,available_until').eq('academy_id',cloudProfile.academy_id).in('class_id',ids).order('created_at',{ascending:false}).limit(50));
+    if (generation !== examBuilder.listGeneration || cloudProfile?.id !== owner) return;
+    $('#assignedExamList').innerHTML = tests.length ? '<p>최근 시험 최대 50개입니다. 시험을 눌러 학생별 응시 현황을 확인하세요.</p>' : '아직 배정한 시험이 없습니다.';
+    tests.forEach(test => {
+      const card = document.createElement('div'); card.className = 'card form-card';
+      const klass = examBuilder.classes.find(c => c.id === test.class_id);
+      card.innerHTML = `<strong>${escapeHtml(test.title)}</strong><span>${escapeHtml(klass?.name || '')} · ${test.question_count}문항 · ${test.is_published ? '배정 완료' : '미완료 · 학생 응시 불가'}</span><small>시작: ${test.available_from ? new Date(test.available_from).toLocaleString('ko-KR') : '즉시'} / 마감: ${test.available_until ? new Date(test.available_until).toLocaleString('ko-KR') : '없음'}</small>`;
+      const detail = document.createElement('div');
+      addStudentButton(card,'학생별 응시 현황',() => showExamParticipation(test,detail));
+      card.append(detail); $('#assignedExamList').append(card);
+    });
+  } catch (error) { if (generation === examBuilder.listGeneration) $('#assignedExamList').textContent = `조회 실패: ${error.message}`; }
+}
+
+async function showExamParticipation(test, container) {
+  if (!isStaff()) return;
+  const owner = cloudProfile.id;
+  const assignments = await readAllRows(() => cloudClient.from('test_assignments').select('student_id').eq('test_id',test.id).order('student_id'));
+  const attempts = await readAllRows(() => cloudClient.from('test_attempts').select('student_id,status,score,attempt_number').eq('test_id',test.id).order('attempt_number',{ascending:false}).order('id'));
+  const profiles = [];
+  for (let offset = 0; offset < assignments.length; offset += 200) profiles.push(...checked(await cloudClient.from('profiles').select('id,display_name').eq('academy_id',cloudProfile.academy_id).in('id',assignments.slice(offset,offset+200).map(a => a.student_id))));
+  if (cloudProfile?.id !== owner) return;
+  const submitted = assignments.filter(a => attempts.some(t => t.student_id === a.student_id && t.status === 'submitted')).length;
+  container.innerHTML = `<p>${assignments.length}명 배정 · ${submitted}명 제출 · ${assignments.length-submitted}명 미제출</p>` + assignments.map(a => {
+    const completed = attempts.find(t => t.student_id === a.student_id && t.status === 'submitted');
+    const started = attempts.some(t => t.student_id === a.student_id && t.status === 'in_progress');
+    return `<p>${escapeHtml(profiles.find(p => p.id === a.student_id)?.display_name || '이름 조회 불가')} · ${completed ? `제출 완료 ${completed.score}점` : started ? '응시 시작 · 미제출' : '미응시'}</p>`;
+  }).join('');
+}
