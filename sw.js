@@ -1,4 +1,4 @@
-const CACHE='tg-voca-v14';
+const CACHE='tg-voca-v15';
 const ASSETS=['./styles.css','./manifest.webmanifest','./assets/tg-logo.svg'];
 self.addEventListener('install',event=>{
   self.skipWaiting();
@@ -12,7 +12,7 @@ self.addEventListener('activate',event=>{
 });
 self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
-  const alwaysFresh=event.request.mode==='navigate'||url.pathname.endsWith('/config.js')||url.pathname.endsWith('/app.js');
+  const alwaysFresh=event.request.mode==='navigate'||url.pathname.endsWith('/config.js')||url.pathname.endsWith('/app.js')||url.pathname.endsWith('/review.js');
   if(alwaysFresh){
     event.respondWith(fetch(event.request).catch(()=>caches.match(event.request)));
     return;

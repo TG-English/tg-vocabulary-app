@@ -176,3 +176,226 @@ async function toggleEnrollment(key){const [class_id,student_id]=key.split('|'),
 async function editStudentName(id){const student=adminState.students.find(s=>s.id===id),display_name=prompt('학생 이름을 입력하세요.',student?.display_name||'')?.trim();if(!display_name||display_name===student.display_name)return;const {error}=await cloudClient.from('profiles').update({display_name}).eq('id',id);if(error)return toast(`이름 수정 실패: ${error.message}`);toast('학생 이름을 수정했습니다.');await loadAdminData()}
 function setBusy(button,busy,label){button.disabled=busy;button.textContent=label}
 initCloudMode();
+// Review and assigned exams. Official student grades always come from submit_attempt.
+let reviewResult = null;
+let submittingAttempt = false;
+const originalFinishTest = finishTest;
+const originalFilterResults = filterResults;
+
+function beginQuestions(questions, current) {
+  if (!questions.length) return toast('출제할 단어가 없습니다.');
+  state.questions = questions;
+  state.current = current;
+  state.answers = [];
+  state.index = 0;
+  $('#testStudent').textContent = `${current.className} · ${current.student}`;
+  $('#testBook').textContent = current.bookName;
+  $('#nextQuestionBtn').disabled = false;
+  document.querySelector('#submitAgainBtn')?.remove();
+  show('test');
+  renderQuestion();
+}
+
+function reviewAnswers(result) {
+  return result.answers || result.wrong || [];
+}
+
+function showSavedResult(result) {
+  reviewResult = result;
+  const answers = reviewAnswers(result);
+  const wrong = answers.filter(a => !a.isCorrect);
+  state.lastWrong = wrong.map(a => ({...a.word, questionType:a.type || a.word.questionType || result.type}));
+  $('#scoreValue').textContent = result.score;
+  $('#scoreCircle').style.background = `conic-gradient(var(--blue) ${result.score}%,#e9eef4 0)`;
+  $('#scoreMessage').textContent = result.isPractice ? '오답 복습 결과' : '시험 결과';
+  $('#scoreDetail').textContent = `${result.student} · ${result.bookName} · ${result.total}문제 중 ${result.correct}문제 정답`;
+  $('#wrongAnswers').innerHTML = `<h3>${result.answers ? '전체 답안 · 오답 확인' : '틀린 단어'}</h3>` +
+    (!result.answers ? '<p>이전 버전 기록은 틀린 단어만 보관되어 있습니다.</p>' : '') +
+    answers.map(a => `<div class="wrong-item"><div><strong>${a.isCorrect ? '✓' : '✕'} ${escapeHtml(a.word.english)}</strong><small>${escapeHtml(a.word.korean)}</small></div><div>내 답: ${escapeHtml(a.answer)}<br>정답: ${escapeHtml(a.correct)}</div></div>`).join('') +
+    (!wrong.length ? '<p>틀린 문제가 없습니다!</p>' : '') +
+    (result.isPractice ? '<p>복습 결과이며 원래 시험 점수는 바뀌지 않습니다.</p>' : '');
+  $('#retryWrongBtn').classList.toggle('hidden', !wrong.length);
+  show('score');
+}
+
+$('#retryWrongBtn').onclick = () => {
+  if (!reviewResult) return;
+  const words = reviewAnswers(reviewResult).filter(a => !a.isCorrect)
+    .map(a => ({...a.word, questionType:a.type || a.word.questionType || reviewResult.type}));
+  // No setup form dependency and no question-count cap, including mixed exams.
+  beginQuestions(shuffle(words), {
+    className:reviewResult.className, student:reviewResult.student,
+    bookId:reviewResult.bookId, bookName:reviewResult.bookName,
+    type:reviewResult.type, isPractice:true,
+    sourceResultId:reviewResult.id,
+    studentOwnerId:cloudProfile?.role === 'student' ? cloudProfile.id : null
+  });
+};
+
+function studentPracticeKey() { return `tg_vocab_practice_${cloudProfile.id}`; }
+
+finishTest = function() {
+  if (state.current.cloudAttemptId) return submitCloudAttempt();
+  if (state.current.studentOwnerId) {
+    if (cloudProfile?.id !== state.current.studentOwnerId) return toast('다시 로그인해 주세요.');
+    const answers = state.answers.map(a => ({...a, word:{...a.word}}));
+    const correct = answers.filter(a => a.isCorrect).length;
+    const result = {...state.current, id:Date.now().toString(), date:new Date().toISOString(),
+      answers, wrong:answers.filter(a => !a.isCorrect), correct, total:answers.length,
+      score:Math.round(correct / answers.length * 100)};
+    const history = load(studentPracticeKey(), []);
+    history.unshift(result);
+    save(studentPracticeKey(), history);
+    showSavedResult(result);
+    return;
+  }
+  originalFinishTest();
+  const result = state.results[0];
+  result.answers = state.answers.map(a => ({...a, word:{...a.word}}));
+  save(STORE.results, state.results);
+  showSavedResult(result);
+};
+
+filterResults = function() {
+  originalFilterResults();
+  const klass = $('#resultClass').value, query = normalize($('#resultSearch').value);
+  const rows = state.results.filter(r => (klass === 'all' || r.className === klass) && (!query || normalize(r.student).includes(query)));
+  document.querySelectorAll('#resultsList .result-item').forEach((row, index) => {
+    const button = document.createElement('button');
+    button.className = 'secondary';
+    button.textContent = rows[index].isPractice ? '복습 결과·오답' : '답안·오답 보기';
+    button.onclick = () => showSavedResult(rows[index]);
+    row.append(button);
+  });
+};
+// Existing listeners held the old function value.
+$('#resultClass').onchange = filterResults;
+$('#resultSearch').oninput = filterResults;
+
+function checked(response) {
+  if (response.error) throw new Error(response.error.message);
+  return response.data || [];
+}
+
+async function fetchTestWords(testId) {
+  const questions = checked(await cloudClient.from('test_questions').select('id,word_id,position').eq('test_id', testId).order('position'));
+  if (!questions.length) return [];
+  const words = checked(await cloudClient.from('vocabulary_words').select('id,english,korean,accepted_answers').in('id', questions.map(q => q.word_id)));
+  return questions.map(q => {
+    const word = words.find(w => w.id === q.word_id);
+    if (!word) throw new Error('시험 단어를 불러오지 못했습니다. 선생님께 문의해 주세요.');
+    return {english:word.english, korean:word.korean, acceptedAnswers:word.accepted_answers, questionId:q.id};
+  });
+}
+
+async function openStudentAttempt(test, attempt, className, bookName) {
+  const words = await fetchTestWords(test.id);
+  const saved = checked(await cloudClient.from('attempt_answers').select('question_id,submitted_answer,correct_answer_snapshot,is_correct').eq('attempt_id', attempt.id));
+  const type = test.test_type.replaceAll('_', '-');
+  const answers = saved.map(a => {
+    const word = words.find(w => w.questionId === a.question_id);
+    if (!word) throw new Error('저장된 답안의 단어를 찾을 수 없습니다.');
+    return {word:{...word, questionType:type}, answer:a.submitted_answer, correct:a.correct_answer_snapshot, isCorrect:a.is_correct, type};
+  });
+  showSavedResult({id:attempt.id, date:attempt.submitted_at, student:cloudProfile.display_name,
+    className, bookId:test.book_id, bookName, type, answers,
+    score:attempt.score, correct:attempt.correct_count, total:attempt.total_count});
+}
+
+async function startStudentAttempt(test, className, bookName, existingAttempt) {
+  // Check current assignment and availability again, rather than trusting a stale list.
+  const fresh = checked(await cloudClient.from('tests').select('*').eq('id', test.id).single());
+  const now = Date.now();
+  if (!fresh.is_published || (fresh.available_from && new Date(fresh.available_from).getTime() > now) ||
+      (fresh.available_until && new Date(fresh.available_until).getTime() < now)) throw new Error('현재 응시할 수 없는 시험입니다.');
+  const words = await fetchTestWords(test.id);
+  if (words.length !== fresh.question_count) throw new Error('등록된 시험 문항 수가 맞지 않습니다. 선생님께 문의해 주세요.');
+  let attempt = existingAttempt;
+  if (!attempt || attempt.status !== 'in_progress') {
+    const previous = checked(await cloudClient.from('test_attempts').select('attempt_number').eq('test_id', test.id).eq('student_id', cloudProfile.id).order('attempt_number', {ascending:false}).limit(1));
+    attempt = checked(await cloudClient.from('test_attempts').insert({test_id:test.id, student_id:cloudProfile.id,
+      attempt_number:(previous[0]?.attempt_number || 0) + 1}).select('id,status').single());
+  }
+  beginQuestions(words, {className, student:cloudProfile.display_name, bookId:test.book_id, bookName,
+    type:fresh.test_type.replaceAll('_', '-'), cloudAttemptId:attempt.id, studentOwnerId:cloudProfile.id});
+}
+
+async function submitCloudAttempt() {
+  if (submittingAttempt) return;
+  if (cloudProfile?.id !== state.current.studentOwnerId) return toast('다시 로그인해 주세요.');
+  submittingAttempt = true;
+  $('#nextQuestionBtn').disabled = true;
+  $('#nextQuestionBtn').textContent = '채점·저장 중...';
+  document.querySelector('#submitAgainBtn')?.remove();
+  try {
+    // If the response was lost after a successful save, recover without resubmitting.
+    let attempt = checked(await cloudClient.from('test_attempts').select('id,status,score,correct_count,total_count').eq('id', state.current.cloudAttemptId).single());
+    if (attempt.status !== 'submitted') {
+      checked(await cloudClient.rpc('submit_attempt', {p_attempt_id:attempt.id,
+        p_answers:state.answers.map(a => ({question_id:a.word.questionId, answer:a.answer}))}));
+      attempt = checked(await cloudClient.from('test_attempts').select('id,status,score,correct_count,total_count').eq('id', attempt.id).single());
+    }
+    const saved = checked(await cloudClient.from('attempt_answers').select('question_id,submitted_answer,correct_answer_snapshot,is_correct').eq('attempt_id', attempt.id));
+    if (saved.length !== state.answers.length) throw new Error('저장된 답안을 모두 불러오지 못했습니다. 다시 시도해 주세요.');
+    const answers = state.answers.map(a => {
+      const row = saved.find(item => item.question_id === a.word.questionId);
+      if (!row) throw new Error('저장된 답안을 확인하지 못했습니다.');
+      return {...a, answer:row.submitted_answer, isCorrect:row.is_correct, correct:row.correct_answer_snapshot};
+    });
+    showSavedResult({...state.current, id:attempt.id, answers,
+      score:attempt.score, correct:attempt.correct_count, total:attempt.total_count});
+  } catch (error) {
+    toast(`채점·저장 실패: ${error.message}`);
+    const button = document.createElement('button');
+    button.id = 'submitAgainBtn'; button.className = 'primary';
+    button.textContent = '답안 다시 저장하기'; button.onclick = submitCloudAttempt;
+    $('#nextQuestionBtn').after(button);
+  } finally { submittingAttempt = false; }
+}
+
+loadStudentTests = async function() {
+  if (cloudProfile?.role !== 'student') return;
+  const list = $('#studentTestList');
+  list.innerHTML = '<p>시험과 지난 답안을 불러오는 중...</p>';
+  try {
+    const assignments = checked(await cloudClient.from('test_assignments').select('test_id').eq('student_id', cloudProfile.id));
+    const ids = assignments.map(a => a.test_id);
+    list.innerHTML = '';
+    if (ids.length) {
+      const tests = checked(await cloudClient.from('tests').select('*').in('id', ids));
+      const attempts = checked(await cloudClient.from('test_attempts').select('id,test_id,status,score,correct_count,total_count,submitted_at,attempt_number').eq('student_id', cloudProfile.id).in('test_id', ids).order('attempt_number', {ascending:false}));
+      for (const test of tests) {
+        const klass = checked(await cloudClient.from('classes').select('name').eq('id', test.class_id).single());
+        const book = checked(await cloudClient.from('vocabulary_books').select('title').eq('id', test.book_id).single());
+        const row = document.createElement('div'); row.className = 'card form-card';
+        row.innerHTML = `<h3>${escapeHtml(test.title)}</h3><p>${escapeHtml(klass.name)} · ${escapeHtml(book.title)} · ${test.question_count}문제</p>`;
+        const available = test.is_published && (!test.available_from || new Date(test.available_from).getTime() <= Date.now()) && (!test.available_until || new Date(test.available_until).getTime() >= Date.now());
+        const history = attempts.filter(a => a.test_id === test.id);
+        const pending = history.find(a => a.status === 'in_progress');
+        if (available) addStudentButton(row, pending ? '시험 다시 시작' : '시험 보기', () => startStudentAttempt(test, klass.name, book.title, pending));
+        else row.insertAdjacentHTML('beforeend', '<p>현재 응시 기간이 아닙니다.</p>');
+        history.filter(a => a.status === 'submitted').forEach(a => addStudentButton(row,
+          `${a.attempt_number}회 · ${a.score}점 · 답안·오답 보기`, () => openStudentAttempt(test, a, klass.name, book.title)));
+        list.append(row);
+      }
+    }
+    const practices = load(studentPracticeKey(), []);
+    if (practices.length) {
+      const heading = document.createElement('h3'); heading.textContent = '이 기기의 오답 복습 기록'; list.append(heading);
+      practices.forEach(result => addStudentButton(list, `${result.bookName} · ${result.score}점 · ${new Date(result.date).toLocaleDateString('ko-KR')}`, () => showSavedResult(result)));
+    }
+    if (!ids.length && !practices.length) list.innerHTML = '<p>아직 배정된 시험이 없습니다.</p>';
+  } catch (error) {
+    list.textContent = `시험을 불러오지 못했습니다: ${error.message}`;
+  }
+};
+
+function addStudentButton(parent, label, action) {
+  const button = document.createElement('button'); button.className = 'secondary'; button.textContent = label;
+  button.onclick = async () => {
+    button.disabled = true;
+    try { await action(); } catch (error) { toast(error.message); }
+    finally { button.disabled = false; }
+  };
+  parent.append(button);
+}
