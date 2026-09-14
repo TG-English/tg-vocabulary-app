@@ -39,7 +39,19 @@ function filterResults(){const c=$('#resultClass').value,q=normalize($('#resultS
 $('#resultClass').onchange=filterResults;$('#resultSearch').oninput=filterResults;
 $('#downloadResultsBtn').onclick=()=>{if(!state.results.length)return toast('저장된 성적이 없어요.');const rows=[['날짜','반','학생','단어장','시험유형','점수','정답수','문제수'],...state.results.map(r=>[new Date(r.date).toLocaleString('ko-KR'),r.className,r.student,r.bookName,r.type,r.score,r.correct,r.total])];const csv='\ufeff'+rows.map(row=>row.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='TG_학생별_성적.csv';a.click();URL.revokeObjectURL(a.href)};
 function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
-let installPrompt;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('#installBtn').classList.remove('hidden')});$('#installBtn').onclick=async()=>{if(installPrompt){installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('#installBtn').classList.add('hidden')}};
+let installPrompt;
+const isStandalone=window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;
+if(!isStandalone)$('#installBtn').classList.remove('hidden');
+window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;$('#installBtn').classList.remove('hidden')});
+window.addEventListener('appinstalled',()=>{$('#installBtn').classList.add('hidden');installPrompt=null;toast('TG 단어 앱을 설치했습니다!')});
+$('#installBtn').onclick=async()=>{
+  if(installPrompt){installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;return}
+  const isiPhone=/iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isAndroid=/android/i.test(navigator.userAgent);
+  if(isiPhone)return alert('아이폰·아이패드 설치 방법\n\n1. Safari에서 이 페이지를 여세요.\n2. 아래의 공유 버튼(□↑)을 누르세요.\n3. 홈 화면에 추가를 선택하세요.');
+  if(isAndroid)return alert('안드로이드 설치 방법\n\nChrome 오른쪽 위 ⋮ 메뉴를 누른 뒤 앱 설치 또는 홈 화면에 추가를 선택하세요.');
+  alert('PC 설치 방법\n\nChrome 또는 Edge 주소창 오른쪽의 설치 아이콘을 누르거나, 브라우저 메뉴에서 앱 설치를 선택하세요.');
+};
 if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');renderStats();
 
 // Supabase production mode. With empty config, the existing local/demo app stays available.
