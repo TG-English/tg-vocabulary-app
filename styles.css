@@ -13,3 +13,12 @@
 #assignExamStudents {min-height:24px}
 #assignedExamList .card {margin-bottom:14px}
 #assignExamSubmitStatus {white-space:pre-line}
+
+/* Keep the compact header while making the TG emblem easier to recognize. */
+.topbar{height:98px}
+.brand img{width:84px;height:72px}
+@media(max-width:650px){
+  .topbar{height:88px}
+  .brand{gap:8px}
+  .brand img{width:76px;height:62px}
+}
