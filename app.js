@@ -41,13 +41,23 @@ $('#downloadResultsBtn').onclick=()=>{if(!state.results.length)return toast('저
 function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
 let installPrompt;
 const isStandalone=window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;
+const isAndroidDevice=/android/i.test(navigator.userAgent);
+const isKakaoBrowser=/kakaotalk/i.test(navigator.userAgent);
+const isAndroidInAppBrowser=isAndroidDevice&&/(kakaotalk|instagram|fban|fbav|naver)/i.test(navigator.userAgent);
 if(!isStandalone)$('#installBtn').classList.remove('hidden');
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;$('#installBtn').classList.remove('hidden')});
 function updateInstallButtons(){if(isStandalone)$$('[data-install-app],#installBtn').forEach(button=>button.classList.add('hidden'))}
 window.addEventListener('appinstalled',()=>{$$('[data-install-app],#installBtn').forEach(button=>button.classList.add('hidden'));installPrompt=null;toast('TG 단어 앱을 설치했습니다!')});
 function closeInstallGuide(){$('#installGuide').classList.add('hidden')}
 function showInstallGuide(html){$('#installGuideText').innerHTML=html;$('#installGuide').classList.remove('hidden')}
+function openInAndroidChrome(){
+  const cleanUrl=location.href.replace(/([?&])openChrome=1(&|$)/,'$1').replace(/[?&]$/,'');
+  if(isKakaoBrowser){location.href=`kakaotalk://web/openExternal?url=${encodeURIComponent(cleanUrl)}`;return}
+  const chromeTarget=`${location.host}${location.pathname}${location.search}${location.hash}`;
+  location.href=`intent://${chromeTarget}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(cleanUrl)};end`;
+}
 async function requestAppInstall(){
+  if(isAndroidInAppBrowser){openInAndroidChrome();return}
   if(installPrompt){installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;return}
   const isiPhone=/iphone|ipad|ipod/i.test(navigator.userAgent);
   const isAndroid=/android/i.test(navigator.userAgent);
@@ -56,6 +66,7 @@ async function requestAppInstall(){
   showInstallGuide('<p>Chrome 또는 Edge 주소창 오른쪽의 <strong>설치 아이콘</strong>을 누르거나 브라우저 메뉴에서 <strong>앱 설치</strong>를 선택하세요.</p>');
 }
 $('#installBtn').onclick=requestAppInstall;$$('[data-install-app]').forEach(button=>button.onclick=requestAppInstall);$('#closeInstallGuide').onclick=closeInstallGuide;$('#installGuideOkay').onclick=closeInstallGuide;$('#installGuide').onclick=event=>{if(event.target===$('#installGuide'))closeInstallGuide()};updateInstallButtons();
+if(isAndroidInAppBrowser)$$('[data-install-app],#installBtn').forEach(button=>button.textContent='Chrome으로 열고 앱 설치');
 if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');renderStats();
 
 // Supabase production mode. With empty config, the existing local/demo app stays available.
