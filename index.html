@@ -87,8 +87,13 @@
           <label>반<select id="assignExamClass" required><option value="">반을 선택하세요</option></select></label>
           <fieldset><legend>응시 학생</legend><div class="button-row"><button id="assignExamAll" type="button" class="secondary">전체 선택</button><button id="assignExamNone" type="button" class="secondary">선택 해제</button></div><p id="assignExamStudentCount">반을 먼저 선택하세요.</p><div id="assignExamStudents" class="exam-roster"></div></fieldset>
           <label>단어장<select id="assignExamBook" required><option value="">단어장을 선택하세요</option></select></label>
-          <p>학원 공유 단어장만 배정할 수 있습니다. 단어 범위는 업로드한 순서로 선택합니다.</p>
-          <div class="mixed-options"><label>시작 단어 번호<input id="assignExamFrom" type="number" min="1" step="1" value="1" required /></label><label>끝 단어 번호<input id="assignExamTo" type="number" min="1" step="1" value="1" required /></label></div>
+          <p>학원 공유 단어장만 배정할 수 있습니다. DAY가 등록된 단어장은 DAY 범위로 바로 선택할 수 있습니다.</p>
+          <fieldset id="assignExamRangeMode"><legend>시험 범위 선택</legend><div class="type-grid">
+            <label class="type-option"><input type="radio" name="examRangeMode" value="day" checked /><span><b>DAY로 선택</b><small>예: DAY 1~2, DAY 1~4</small></span></label>
+            <label class="type-option"><input type="radio" name="examRangeMode" value="position" /><span><b>단어 번호로 선택</b><small>기존 방식 그대로 선택</small></span></label>
+          </div></fieldset>
+          <div id="assignExamDayRange" class="mixed-options"><label>시작 DAY<select id="assignExamDayFrom"></select></label><label>끝 DAY<select id="assignExamDayTo"></select></label></div>
+          <div id="assignExamPositionRange" class="mixed-options hidden"><label>시작 단어 번호<input id="assignExamFrom" type="number" min="1" step="1" value="1" required /></label><label>끝 단어 번호<input id="assignExamTo" type="number" min="1" step="1" value="1" required /></label></div>
           <p id="assignExamRange">단어장을 선택하세요.</p>
           <label>시험 유형<select id="assignExamType"><option value="en_ko">영어를 보고 뜻 쓰기</option><option value="ko_en">뜻을 보고 스펠링 쓰기</option><option value="mixed" id="assignExamMixedChoice" disabled>혼합 시험 · 서버 설정 확인 중</option><option value="spelling">소리를 듣고 스펠링 쓰기</option></select></label>
           <label id="assignExamSingleCount">문항 수<input id="assignExamCount" type="number" min="1" max="500" step="1" value="20" required /></label>
@@ -105,10 +110,10 @@
       </section>
 
       <section id="uploadView" class="view">
-        <div class="section-head"><button class="back" data-view="home">←</button><div><h2>엑셀 단어 등록</h2><p>첫 번째 열은 영어, 두 번째 열은 뜻으로 읽어요.</p></div></div>
+        <div class="section-head"><button class="back" data-view="home">←</button><div><h2>엑셀 단어 등록</h2><p>첫 번째 열은 영어, 두 번째 열은 뜻, 세 번째 열은 DAY로 읽어요.</p></div></div>
         <div class="card form-card">
           <label>단어장 이름<input id="bookName" placeholder="예: 능률VOCA 어원편 Day 1" /></label>
-          <label class="dropzone" for="excelFile"><span>📄</span><strong>엑셀 파일 선택</strong><small>.xlsx, .xls, .csv 파일 지원</small></label>
+          <label class="dropzone" for="excelFile"><span>📄</span><strong>엑셀 파일 선택</strong><small>DAY 시험은 세 번째 열에 DAY 1, DAY 2처럼 입력 · 기존 2열 파일도 지원</small></label>
           <input id="excelFile" class="hidden" type="file" accept=".xlsx,.xls,.csv" />
           <div id="uploadPreview" class="preview hidden"></div>
           <button id="saveBookBtn" class="primary" disabled>단어장 저장</button>

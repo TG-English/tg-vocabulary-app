@@ -14,7 +14,9 @@ function koreanAnswerMatches(answer,expected){const typed=normalizeKorean(answer
 function shuffle(a){return [...a].sort(()=>Math.random()-.5)}
 function renderStats(){const scores=state.results.map(r=>r.score);$('#statWords').textContent=state.books.reduce((n,b)=>n+b.words.length,0);$('#statTests').textContent=state.results.length;$('#statAverage').textContent=scores.length?`${Math.round(scores.reduce((a,b)=>a+b,0)/scores.length)}점`:'-'}
 
-$('#excelFile').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const data=await file.arrayBuffer();const wb=XLSX.read(data);const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});let words=rows.map(r=>({english:String(r[0]).trim(),korean:String(r[1]).trim()})).filter(w=>w.english&&w.korean);if(words.length&&/english|영어|단어|word/i.test(words[0].english))words.shift();state.pendingWords=words;$('#uploadPreview').classList.remove('hidden');$('#uploadPreview').innerHTML=`<strong>${file.name}</strong><p>${words.length}개 단어를 확인했어요.</p>`;$('#saveBookBtn').disabled=!words.length;if(!$('#bookName').value)$('#bookName').value=file.name.replace(/\.[^.]+$/,'')}catch{toast('파일을 읽지 못했어요. 엑셀 형식을 확인해주세요.')}});
+function parseDayNumber(value){const match=String(value??'').trim().match(/^(?:day\s*)?(\d+)$/i);return match?Number(match[1]):null}
+function parseVocabularyRows(rows){let currentDay=null;const words=[];for(const row of rows){const english=String(row[0]??'').trim(),korean=String(row[1]??'').trim();if(!korean&&/^day\s*\d+$/i.test(english)){currentDay=parseDayNumber(english);continue}if(!english||!korean||/^(english|영어|단어|word)$/i.test(english))continue;const explicitDay=parseDayNumber(row[2]);if(explicitDay)currentDay=explicitDay;words.push({english,korean,dayNumber:explicitDay||currentDay||null})}return words}
+$('#excelFile').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const data=await file.arrayBuffer();const wb=XLSX.read(data);const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});const words=parseVocabularyRows(rows);state.pendingWords=words;const days=[...new Set(words.map(w=>w.dayNumber).filter(Boolean))].sort((a,b)=>a-b);$('#uploadPreview').classList.remove('hidden');$('#uploadPreview').innerHTML=`<strong>${file.name}</strong><p>${words.length}개 단어를 확인했어요.${days.length?` · DAY ${days[0]}~${days.at(-1)} 인식`: ' · DAY 정보 없음'}</p>`;$('#saveBookBtn').disabled=!words.length;if(!$('#bookName').value)$('#bookName').value=file.name.replace(/\.[^.]+$/,'')}catch{toast('파일을 읽지 못했어요. 엑셀 형식을 확인해주세요.')}});
 $('#saveBookBtn').addEventListener('click',async()=>{const name=$('#bookName').value.trim();if(!name||!state.pendingWords.length)return toast('단어장 이름과 파일을 확인해주세요.');if(cloudClient&&['admin','teacher'].includes(cloudProfile?.role))return saveCloudBook(name);state.books.unshift({id:Date.now().toString(),name,words:state.pendingWords,createdAt:new Date().toISOString()});save(STORE.books,state.books);clearBookForm();renderBooks();toast('단어장을 저장했어요!')});
 function clearBookForm(){state.pendingWords=[];$('#bookName').value='';$('#excelFile').value='';$('#uploadPreview').classList.add('hidden');$('#saveBookBtn').disabled=true}
 function renderBooks(){$('#bookList').innerHTML=state.books.map(b=>`<div class="book-item"><div><strong>${escapeHtml(b.name)}</strong><small>${b.words.length}개 단어 · ${b.isCloud?'학원 공유':'이 기기'}</small></div><button data-delete-book="${b.id}">삭제</button></div>`).join('')||'<div class="card tip">아직 등록된 단어장이 없어요.</div>';$$('[data-delete-book]').forEach(btn=>btn.onclick=()=>deleteBook(btn.dataset.deleteBook))}
@@ -120,8 +122,8 @@ async function loadCloudBooks(){
   const {data:books,error}=await cloudClient.from('vocabulary_books').select('id,title,created_at').order('created_at',{ascending:false});
   if(error)return toast(`공유 단어장을 불러오지 못했습니다: ${error.message}`);
   const ids=(books||[]).map(book=>book.id);let words=[];
-  if(ids.length){const result=await cloudClient.from('vocabulary_words').select('book_id,english,korean,accepted_answers,position').in('book_id',ids).order('position');if(result.error)return toast(`단어를 불러오지 못했습니다: ${result.error.message}`);words=result.data||[]}
-  const cloudBooks=(books||[]).map(book=>({id:book.id,name:book.title,createdAt:book.created_at,isCloud:true,words:words.filter(word=>word.book_id===book.id).map(word=>({english:word.english,korean:word.korean,acceptedAnswers:word.accepted_answers}))}));
+  if(ids.length){const result=await cloudClient.from('vocabulary_words').select('book_id,english,korean,accepted_answers,position,day_number').in('book_id',ids).order('position');if(result.error)return toast(`단어를 불러오지 못했습니다: ${result.error.message}`);words=result.data||[]}
+  const cloudBooks=(books||[]).map(book=>({id:book.id,name:book.title,createdAt:book.created_at,isCloud:true,words:words.filter(word=>word.book_id===book.id).map(word=>({english:word.english,korean:word.korean,acceptedAnswers:word.accepted_answers,dayNumber:word.day_number}))}));
   state.books=[...cloudBooks,...load(STORE.books,[])];renderStats();
 }
 async function loadCloudClasses(){
@@ -133,7 +135,7 @@ async function saveCloudBook(name){
   const button=$('#saveBookBtn');setBusy(button,true,'업로드 중...');
   const {data:book,error:bookError}=await cloudClient.from('vocabulary_books').insert({academy_id:cloudProfile.academy_id,owner_id:cloudProfile.id,title:name,is_sample:false}).select('id,title,created_at').single();
   if(bookError){setBusy(button,false,'단어장 저장');return toast(`단어장 저장 실패: ${bookError.message}`)}
-  const rows=state.pendingWords.map((word,index)=>({book_id:book.id,english:word.english,korean:word.korean,position:index+1}));
+  const rows=state.pendingWords.map((word,index)=>({book_id:book.id,english:word.english,korean:word.korean,position:index+1,day_number:word.dayNumber||null}));
   for(let index=0;index<rows.length;index+=500){const {error}=await cloudClient.from('vocabulary_words').insert(rows.slice(index,index+500));if(error){await cloudClient.from('vocabulary_books').delete().eq('id',book.id);setBusy(button,false,'단어장 저장');return toast(`단어 업로드 실패: ${error.message}`)}}
   clearBookForm();setBusy(button,false,'단어장 저장');toast(`${rows.length}개 단어를 학원 공유 단어장에 저장했습니다.`);await loadCloudBooks();renderBooks();
 }
@@ -708,21 +710,33 @@ async function loadExamBook() {
   $('#assignExamRange').textContent = bookId ? '단어를 불러오는 중...' : '단어장을 선택하세요.';
   if (!isStaff() || !examBuilder.books.some(b => b.id === bookId)) return;
   try {
-    const words = await readAllRows(() => cloudClient.from('vocabulary_words').select('id,english,korean,position').eq('book_id',bookId).order('position').order('id'));
+    const words = await readAllRows(() => cloudClient.from('vocabulary_words').select('id,english,korean,position,day_number').eq('book_id',bookId).order('position').order('id'));
     if (generation !== examBuilder.bookGeneration || cloudProfile?.id !== owner) return;
-    examBuilder.words = words;
+    examBuilder.words = words.map(word=>({...word,dayNumber:word.day_number}));
     $('#assignExamFrom').value = 1; $('#assignExamTo').value = words.length || 1;
     $('#assignExamFrom').max = $('#assignExamTo').max = words.length;
+    const days=[...new Set(examBuilder.words.map(word=>word.dayNumber).filter(Number.isInteger))].sort((a,b)=>a-b);
+    const options=days.map(day=>`<option value="${day}">DAY ${day}</option>`).join('');
+    $('#assignExamDayFrom').innerHTML=options;$('#assignExamDayTo').innerHTML=options;
+    if(days.length)$('#assignExamDayTo').value=days.at(-1);
+    const dayMode=$('input[name="examRangeMode"][value="day"]');dayMode.disabled=!days.length;
+    if(!days.length)$('input[name="examRangeMode"][value="position"]').checked=true;else dayMode.checked=true;
+    updateExamRangeMode();
     updateExamRange();
   } catch (error) { if (generation === examBuilder.bookGeneration) $('#assignExamRange').textContent = `단어 조회 실패: ${error.message}`; }
 }
 function updateExamRange() {
-  const start = Number($('#assignExamFrom').value), end = Number($('#assignExamTo').value);
+  const dayMode=$('input[name="examRangeMode"]:checked')?.value==='day';
+  let start = Number($('#assignExamFrom').value), end = Number($('#assignExamTo').value);
   const words = examBuilder.words;
+  if(dayMode){const from=Number($('#assignExamDayFrom').value),to=Number($('#assignExamDayTo').value),selected=words.filter(word=>word.dayNumber>=from&&word.dayNumber<=to);$('#assignExamRange').textContent=Number.isInteger(from)&&Number.isInteger(to)&&from<=to&&selected.length?`DAY ${from}~${to} · ${selected.length}개: ${selected[0].english} ~ ${selected.at(-1).english}`:'유효한 DAY 범위를 선택하세요.';return}
   $('#assignExamRange').textContent = Number.isInteger(start) && Number.isInteger(end) && start >= 1 && end >= start && end <= words.length ? `${start}~${end}번 · ${end-start+1}개: ${words[start-1].english} ~ ${words[end-1].english}` : '유효한 단어 범위를 입력하세요.';
 }
 $('#assignExamBook').onchange = loadExamBook;
 $('#assignExamFrom').oninput = $('#assignExamTo').oninput = updateExamRange;
+$('#assignExamDayFrom').onchange=$('#assignExamDayTo').onchange=updateExamRange;
+function updateExamRangeMode(){const day=$('input[name="examRangeMode"]:checked')?.value==='day';$('#assignExamDayRange').classList.toggle('hidden',!day);$('#assignExamPositionRange').classList.toggle('hidden',day);$('#assignExamFrom').required=$('#assignExamTo').required=!day;updateExamRange()}
+$$('input[name="examRangeMode"]').forEach(input=>input.onchange=updateExamRangeMode);
 function updateExamType() {
   const mixed = $('#assignExamType').value === 'mixed';
   $('#assignExamSingleCount').classList.toggle('hidden',mixed);
@@ -752,8 +766,9 @@ function buildExamPlan(input, words, eligibleIds, mixedAvailable, multipleMeanin
   if (selected.some(id => !eligibleIds.includes(id))) throw new Error('학생의 반 배정이 변경되었습니다. 학생 목록을 새로 불러와 주세요.');
   if (!['en_ko','ko_en','spelling','mixed'].includes(input.type)) throw new Error('시험 유형을 확인하세요.');
   if (input.type === 'mixed' && !mixedAvailable) throw new Error('혼합시험 서버 설정을 먼저 완료해 주세요.');
-  const start = Number(input.start), end = Number(input.end);
-  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > words.length) throw new Error('단어 범위를 확인하세요.');
+  const dayMode=input.rangeMode==='day';const start = Number(input.start), end = Number(input.end),dayFrom=Number(input.dayFrom),dayTo=Number(input.dayTo);
+  if(dayMode&&(!Number.isInteger(dayFrom)||!Number.isInteger(dayTo)||dayFrom<1||dayTo<dayFrom))throw new Error('DAY 범위를 확인하세요.');
+  if(!dayMode&&(!Number.isInteger(start)||!Number.isInteger(end)||start<1||end<start||end>words.length))throw new Error('단어 범위를 확인하세요.');
   const meaning = Number(input.meaning), spelling = Number(input.spelling), count = input.type === 'mixed' ? meaning + spelling : Number(input.count);
   if (input.type === 'mixed' && (![meaning,spelling].every(n => Number.isInteger(n) && n > 0))) throw new Error('혼합시험의 각 문항 수는 1 이상의 정수로 입력하세요.');
   if (!Number.isInteger(count) || count < 1 || count > 500) throw new Error('문항 수는 1~500개의 정수로 입력하세요.');
@@ -762,7 +777,9 @@ function buildExamPlan(input, words, eligibleIds, mixedAvailable, multipleMeanin
   const parseTime = value => { if (!value) return null; const time = new Date(value); if (!Number.isFinite(time.getTime())) throw new Error('응시 시간을 확인하세요.'); return time.toISOString(); };
   const from = parseTime(input.availableFrom), until = parseTime(input.availableUntil);
   if (until && (new Date(until).getTime() <= Date.now() || (from && until <= from))) throw new Error('응시 마감은 현재와 시작 시간보다 나중이어야 합니다.');
-  const rangeRows=words.slice(start-1,end),pool=uniqueExamWords(rangeRows);
+  const rangeRows=dayMode?words.filter(word=>Number(word.dayNumber)>=dayFrom&&Number(word.dayNumber)<=dayTo):words.slice(start-1,end);
+  if(!rangeRows.length)throw new Error('선택한 범위에 단어가 없습니다.');
+  const pool=uniqueExamWords(rangeRows);
   if(count>pool.length)throw new Error(`선택 범위 ${rangeRows.length}개 중 같은 철자를 제외하면 ${pool.length}개입니다. 문항 수를 ${pool.length}개 이하로 줄여 주세요.`);
   for (let i = pool.length-1; i > 0; i--) { const j = Math.floor(random()*(i+1)); [pool[i],pool[j]] = [pool[j],pool[i]]; }
   return {title,students:selected,pass,from,until,type:input.type,count,
@@ -801,8 +818,8 @@ $('#assignExamForm').onsubmit = async event => {
   if (!isStaff() || examBuilder.busy || examBuilder.owner !== cloudProfile.id) return;
   const profile = {...cloudProfile}, classId = $('#assignExamClass').value, bookId = $('#assignExamBook').value;
   if (!examBuilder.classes.some(c => c.id === classId) || !examBuilder.books.some(b => b.id === bookId)) return toast('반과 공유 단어장을 선택하세요.');
-  const input = {title:$('#assignExamTitle').value,students:selectedExamStudents(),type:$('#assignExamType').value,
-    start:$('#assignExamFrom').value,end:$('#assignExamTo').value,count:$('#assignExamCount').value,meaning:$('#assignExamMeaning').value,
+  const input = {title:$('#assignExamTitle').value,students:selectedExamStudents(),type:$('#assignExamType').value,rangeMode:$('input[name="examRangeMode"]:checked')?.value,
+    start:$('#assignExamFrom').value,end:$('#assignExamTo').value,dayFrom:$('#assignExamDayFrom').value,dayTo:$('#assignExamDayTo').value,count:$('#assignExamCount').value,meaning:$('#assignExamMeaning').value,
     spelling:$('#assignExamSpelling').value,pass:$('#assignExamPass').value,availableFrom:$('#assignExamStart').value,availableUntil:$('#assignExamEnd').value};
   examBuilder.busy = true;
   const controls = Array.from($('#assignExamForm').querySelectorAll('input,select,button'));

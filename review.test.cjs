@@ -51,6 +51,28 @@ test('assignment plan keeps selected students and limits unique mixed questions 
   assert.ok(plan.questions.every(q=>Number(q.word_id.split('-')[1])>=11&&Number(q.word_id.split('-')[1])<=40));
 });
 
+test('DAY range includes every word from the selected consecutive days', () => {
+  const {context} = setup();
+  context.words = [
+    {id:'d1-a',english:'apple',korean:'사과',dayNumber:1},
+    {id:'d1-b',english:'book',korean:'책',dayNumber:1},
+    {id:'d2-a',english:'chair',korean:'의자',dayNumber:2},
+    {id:'d3-a',english:'desk',korean:'책상',dayNumber:3}
+  ];
+  context.input = {title:'Day 1-2',students:['a'],type:'en_ko',rangeMode:'day',dayFrom:1,dayTo:2,count:3,pass:80};
+  const plan = vm.runInContext("buildExamPlan(input,words,['a'],true,false,()=>0.7)",context);
+  assert.deepEqual(new Set(plan.questions.map(q=>q.word_id)),new Set(['d1-a','d1-b','d2-a']));
+});
+
+test('DAY range rejects reversed or empty day selections', () => {
+  const {context} = setup();
+  context.words = [{id:'d2',english:'book',korean:'책',dayNumber:2}];
+  context.input = {title:'Bad day',students:['a'],type:'en_ko',rangeMode:'day',dayFrom:3,dayTo:2,count:1,pass:80};
+  assert.throws(()=>vm.runInContext("buildExamPlan(input,words,['a'],true)",context),/DAY 범위/);
+  context.input.dayFrom=1;context.input.dayTo=1;
+  assert.throws(()=>vm.runInContext("buildExamPlan(input,words,['a'],true)",context),/단어가 없습니다/);
+});
+
 test('duplicate spellings become one question and all distinct meanings are accepted', () => {
   const {context} = setup();
   context.words=[
