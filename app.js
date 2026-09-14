@@ -43,15 +43,19 @@ let installPrompt;
 const isStandalone=window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;
 if(!isStandalone)$('#installBtn').classList.remove('hidden');
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;$('#installBtn').classList.remove('hidden')});
-window.addEventListener('appinstalled',()=>{$('#installBtn').classList.add('hidden');installPrompt=null;toast('TG 단어 앱을 설치했습니다!')});
-$('#installBtn').onclick=async()=>{
+function updateInstallButtons(){if(isStandalone)$$('[data-install-app],#installBtn').forEach(button=>button.classList.add('hidden'))}
+window.addEventListener('appinstalled',()=>{$$('[data-install-app],#installBtn').forEach(button=>button.classList.add('hidden'));installPrompt=null;toast('TG 단어 앱을 설치했습니다!')});
+function closeInstallGuide(){$('#installGuide').classList.add('hidden')}
+function showInstallGuide(html){$('#installGuideText').innerHTML=html;$('#installGuide').classList.remove('hidden')}
+async function requestAppInstall(){
   if(installPrompt){installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;return}
   const isiPhone=/iphone|ipad|ipod/i.test(navigator.userAgent);
   const isAndroid=/android/i.test(navigator.userAgent);
-  if(isiPhone)return alert('아이폰·아이패드 설치 방법\n\n1. Safari에서 이 페이지를 여세요.\n2. 아래의 공유 버튼(□↑)을 누르세요.\n3. 홈 화면에 추가를 선택하세요.');
-  if(isAndroid)return alert('안드로이드 설치 방법\n\nChrome 오른쪽 위 ⋮ 메뉴를 누른 뒤 앱 설치 또는 홈 화면에 추가를 선택하세요.');
-  alert('PC 설치 방법\n\nChrome 또는 Edge 주소창 오른쪽의 설치 아이콘을 누르거나, 브라우저 메뉴에서 앱 설치를 선택하세요.');
-};
+  if(isiPhone)return showInstallGuide('<p><strong>Safari</strong>에서 이 페이지를 연 뒤</p><p>화면 아래 <strong>공유 버튼 □↑</strong> → <strong>홈 화면에 추가</strong>를 눌러 주세요.</p><p>아이폰은 애플 보안 규정상 이 두 번의 선택이 꼭 필요합니다.</p>');
+  if(isAndroid)return showInstallGuide('<p><strong>Chrome</strong> 오른쪽 위 <strong>⋮</strong>를 누른 뒤</p><p><strong>앱 설치</strong> 또는 <strong>홈 화면에 추가</strong>를 한 번 눌러 주세요.</p>');
+  showInstallGuide('<p>Chrome 또는 Edge 주소창 오른쪽의 <strong>설치 아이콘</strong>을 누르거나 브라우저 메뉴에서 <strong>앱 설치</strong>를 선택하세요.</p>');
+}
+$('#installBtn').onclick=requestAppInstall;$$('[data-install-app]').forEach(button=>button.onclick=requestAppInstall);$('#closeInstallGuide').onclick=closeInstallGuide;$('#installGuideOkay').onclick=closeInstallGuide;$('#installGuide').onclick=event=>{if(event.target===$('#installGuide'))closeInstallGuide()};updateInstallButtons();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');renderStats();
 
 // Supabase production mode. With empty config, the existing local/demo app stays available.

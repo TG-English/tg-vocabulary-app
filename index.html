@@ -34,6 +34,7 @@
             <button id="loginBtn" class="primary" type="submit">로그인</button>
           </form>
           <p id="loginError" class="error-text" role="alert"></p>
+          <button class="primary full install-main-btn" type="button" data-install-app>📲 휴대폰에 TG 앱 설치</button>
           <button id="showSignupBtn" class="ghost full" type="button">학생 직접 가입</button>
         </div>
         <div id="signupCard" class="auth-card card hidden">
@@ -92,6 +93,7 @@
 
       <section id="studentView" class="view">
         <div class="section-head"><button class="back" data-view="home">←</button><div><h2>내 시험</h2><p>나에게 배정된 시험만 표시됩니다.</p></div></div>
+        <button class="primary full install-main-btn" type="button" data-install-app>📲 휴대폰에 TG 앱 설치</button>
         <div id="studentTestList" class="management-list"><div class="loading-row">불러오는 중...</div></div>
       </section>
 
@@ -207,10 +209,19 @@
       </section>
     </main>
     <div id="toast" role="status"></div>
+    <div id="installGuide" class="install-guide hidden" role="dialog" aria-modal="true" aria-labelledby="installGuideTitle">
+      <div class="install-guide-card card">
+        <button id="closeInstallGuide" class="install-guide-close" type="button" aria-label="닫기">×</button>
+        <div class="install-guide-icon">📲</div>
+        <h2 id="installGuideTitle">TG 앱 설치</h2>
+        <div id="installGuideText"></div>
+        <button id="installGuideOkay" class="primary full" type="button">확인</button>
+      </div>
+    </div>
   </div>
   <script src="config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=24"></script>
+  <script src="app.js?v=25"></script>
 </body>
 </html>
