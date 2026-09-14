@@ -176,14 +176,17 @@
       </section>
 
       <section id="adminView" class="view">
-        <div class="section-head"><button class="back" data-view="home">←</button><div><h2>학원 관리</h2><p>반을 만들고 등록된 학생 계정을 배정하세요.</p></div></div>
+        <div class="section-head"><button class="back" data-view="home">←</button><div><h2>학원 관리</h2><p>반과 학생을 관리하고 담당 선생님을 배정하세요.</p></div></div>
         <div class="admin-grid">
           <form id="classForm" class="card form-card"><h3>새 반 등록</h3><label>반 이름<input id="adminClassName" required placeholder="예: Rachel 중1반" /></label><label>학년도<input id="adminClassYear" type="number" min="2020" max="2100" required /></label><button id="saveClassBtn" class="primary" type="submit">반 저장</button></form>
           <form id="studentAssignForm" class="card form-card"><h3>학생 반 배정</h3><label>학생 계정<select id="adminStudentSelect" required><option value="">학생을 선택하세요</option></select></label><label>배정할 반<select id="adminClassSelect" required><option value="">반을 선택하세요</option></select></label><label>학생 번호<input id="adminStudentNumber" placeholder="선택 사항" /></label><button id="assignStudentBtn" class="primary" type="submit">학생 배정</button></form>
           <form id="studentAccountForm" class="card form-card account-form"><h3>학생 로그인 계정 발급</h3><label>학생 이름<input id="newStudentName" required autocomplete="off" placeholder="예: 김유지" /></label><label>로그인 이메일<input id="newStudentEmail" type="email" required autocomplete="off" placeholder="student@example.com" /></label><label>임시 비밀번호<input id="newStudentPassword" type="password" minlength="8" required autocomplete="new-password" placeholder="8자 이상" /></label><label>배정할 반<select id="newStudentClass" required><option value="">반을 선택하세요</option></select></label><label>학생 번호<input id="newStudentNumber" autocomplete="off" placeholder="선택 사항" /></label><button id="createStudentBtn" class="primary" type="submit">계정 발급</button></form>
+          <form id="teacherAccountForm" class="card form-card account-form"><h3>선생님 로그인 계정 발급</h3><label>선생님 이름<input id="newTeacherName" required autocomplete="off" placeholder="예: 김선생님" /></label><label>로그인 이메일<input id="newTeacherEmail" type="email" required autocomplete="off" placeholder="teacher@example.com" /></label><label>임시 비밀번호<input id="newTeacherPassword" type="password" minlength="8" required autocomplete="new-password" placeholder="8자 이상" /></label><fieldset class="class-check-field"><legend>담당 반 (여러 반 선택 가능)</legend><div id="newTeacherClasses" class="class-check-list"></div></fieldset><button id="createTeacherBtn" class="primary" type="submit">선생님 계정 발급</button></form>
+          <form id="teacherAssignForm" class="card form-card account-form"><h3>선생님 담당 반 변경</h3><label>선생님<select id="adminTeacherSelect" required><option value="">선생님을 선택하세요</option></select></label><fieldset class="class-check-field"><legend>담당 반 (여러 반 선택 가능)</legend><div id="adminTeacherClasses" class="class-check-list"></div></fieldset><button id="assignTeacherBtn" class="primary" type="submit">담당 반 저장</button></form>
         </div>
-        <div class="card admin-note"><strong>계정 발급 안내</strong><p>임시 비밀번호는 화면이나 데이터베이스에 따로 저장되지 않습니다. 발급 직후 학생에게 안전하게 전달해 주세요. 이메일 확인 설정이 켜져 있으면 학생이 확인 메일을 먼저 눌러야 로그인할 수 있습니다.</p></div>
+        <div class="card admin-note"><strong>계정 발급 안내</strong><p>임시 비밀번호는 화면이나 데이터베이스에 따로 저장되지 않습니다. 발급 직후 학생 또는 선생님에게 안전하게 전달해 주세요. 이메일 확인 설정이 켜져 있으면 확인 메일 승인 후 로그인할 수 있습니다.</p></div>
         <div class="management-section"><div class="management-title"><h3>반 목록</h3><span id="classCount">0개</span></div><div id="adminClassList" class="management-list"></div></div>
+        <div class="management-section"><div class="management-title"><h3>선생님 목록</h3><span id="teacherCount">0명</span></div><div id="adminTeacherList" class="management-list"></div></div>
         <div class="management-section"><div class="management-title"><h3>학생 목록</h3><span id="studentCount">0명</span></div><div id="adminStudentList" class="management-list"></div></div>
       </section>
     </main>
@@ -192,6 +195,6 @@
   <script src="config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=21"></script>
+  <script src="app.js?v=22"></script>
 </body>
 </html>
