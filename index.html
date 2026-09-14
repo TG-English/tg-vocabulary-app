@@ -34,6 +34,22 @@
             <button id="loginBtn" class="primary" type="submit">로그인</button>
           </form>
           <p id="loginError" class="error-text" role="alert"></p>
+          <button id="showSignupBtn" class="ghost full" type="button">학생 직접 가입</button>
+        </div>
+        <div id="signupCard" class="auth-card card hidden">
+          <img src="assets/tg-logo.svg" alt="TG 영어전문학원" />
+          <span class="eyebrow">TG ENGLISH ACADEMY</span>
+          <h1>학생 가입</h1>
+          <p>선생님에게 받은 반 가입코드를 입력하세요. 관리자 승인 후 로그인할 수 있습니다.</p>
+          <form id="studentSignupForm">
+            <label>학생 이름<input id="signupName" required maxlength="40" autocomplete="name" placeholder="예: 김유지" /></label>
+            <label>이메일<input id="signupEmail" type="email" required autocomplete="email" placeholder="student@example.com" /></label>
+            <label>비밀번호<input id="signupPassword" type="password" minlength="8" required autocomplete="new-password" placeholder="8자 이상" /></label>
+            <label>반 가입코드<input id="signupClassCode" required maxlength="30" autocomplete="off" autocapitalize="characters" placeholder="선생님에게 받은 코드" /></label>
+            <button id="studentSignupBtn" class="primary" type="submit">가입 신청</button>
+          </form>
+          <p id="signupError" class="error-text" role="alert"></p>
+          <button id="backToLoginBtn" class="ghost full" type="button">로그인으로 돌아가기</button>
         </div>
       </section>
       <section id="homeView" class="view active">
@@ -178,7 +194,7 @@
       <section id="adminView" class="view">
         <div class="section-head"><button class="back" data-view="home">←</button><div><h2>학원 관리</h2><p>반과 학생을 관리하고 담당 선생님을 배정하세요.</p></div></div>
         <div class="admin-grid">
-          <form id="classForm" class="card form-card"><h3>새 반 등록</h3><label>반 이름<input id="adminClassName" required placeholder="예: Rachel 중1반" /></label><label>학년도<input id="adminClassYear" type="number" min="2020" max="2100" required /></label><button id="saveClassBtn" class="primary" type="submit">반 저장</button></form>
+          <form id="classForm" class="card form-card"><h3>새 반 등록</h3><label>반 이름<input id="adminClassName" required placeholder="예: Rachel 중1반" /></label><label>학년도<input id="adminClassYear" type="number" min="2020" max="2100" required /></label><label>학생 가입코드<input id="adminClassSignupCode" required minlength="4" maxlength="30" autocomplete="off" placeholder="예: TG-RACHEL-M1" /><small>영문, 숫자, - 기호로 4~30자</small></label><button id="saveClassBtn" class="primary" type="submit">반 저장</button></form>
           <form id="studentAssignForm" class="card form-card"><h3>학생 반 배정</h3><label>학생 계정<select id="adminStudentSelect" required><option value="">학생을 선택하세요</option></select></label><label>배정할 반<select id="adminClassSelect" required><option value="">반을 선택하세요</option></select></label><label>학생 번호<input id="adminStudentNumber" placeholder="선택 사항" /></label><button id="assignStudentBtn" class="primary" type="submit">학생 배정</button></form>
           <form id="studentAccountForm" class="card form-card account-form"><h3>학생 로그인 계정 발급</h3><label>학생 이름<input id="newStudentName" required autocomplete="off" placeholder="예: 김유지" /></label><label>로그인 이메일<input id="newStudentEmail" type="email" required autocomplete="off" placeholder="student@example.com" /></label><label>임시 비밀번호<input id="newStudentPassword" type="password" minlength="8" required autocomplete="new-password" placeholder="8자 이상" /></label><label>배정할 반<select id="newStudentClass" required><option value="">반을 선택하세요</option></select></label><label>학생 번호<input id="newStudentNumber" autocomplete="off" placeholder="선택 사항" /></label><button id="createStudentBtn" class="primary" type="submit">계정 발급</button></form>
           <form id="teacherAccountForm" class="card form-card account-form"><h3>선생님 로그인 계정 발급</h3><label>선생님 이름<input id="newTeacherName" required autocomplete="off" placeholder="예: 김선생님" /></label><label>로그인 이메일<input id="newTeacherEmail" type="email" required autocomplete="off" placeholder="teacher@example.com" /></label><label>임시 비밀번호<input id="newTeacherPassword" type="password" minlength="8" required autocomplete="new-password" placeholder="8자 이상" /></label><fieldset class="class-check-field"><legend>담당 반 (여러 반 선택 가능)</legend><div id="newTeacherClasses" class="class-check-list"></div></fieldset><button id="createTeacherBtn" class="primary" type="submit">선생님 계정 발급</button></form>
@@ -195,6 +211,6 @@
   <script src="config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=22"></script>
+  <script src="app.js?v=23"></script>
 </body>
 </html>

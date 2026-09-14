@@ -85,7 +85,8 @@ async function loadCloudProfile(userId){
     const {data,error}=await queryProfileWithRetry(userId);
     if(client!==cloudClient||generation!==authGeneration)return false;
     if(error){$('#loginError').textContent=`사용자 정보를 불러오지 못했습니다: ${error.message} · 잠시 후 다시 로그인해 주세요.`;show('auth');return false}
-    if(!data||!data.is_active){$('#loginError').textContent='등록된 활성 사용자 정보를 찾을 수 없습니다. 관리자에게 학생 계정 상태를 확인해 주세요.';await cloudClient.auth.signOut();return false}
+    if(data&&!data.is_active){$('#loginError').textContent='가입 신청이 접수되었습니다. 관리자 승인 후 로그인할 수 있습니다.';await cloudClient.auth.signOut();return false}
+    if(!data){$('#loginError').textContent='등록된 사용자 정보를 찾을 수 없습니다. 관리자에게 계정 상태를 확인해 주세요.';await cloudClient.auth.signOut();return false}
     cloudProfile=data;$('#loginError').textContent='';applyRoleMenus(data.role);$('#accountBtn').classList.remove('hidden');$('.brand strong').innerHTML=`TG Vocabulary <span class="role-badge">${roleLabel(data.role)}</span>`;
     if(data.role!=='student')await Promise.all([loadCloudBooks(),loadCloudClasses()]);
     if(client===cloudClient&&generation===authGeneration){show(data.role==='student'?'student':'home');return true}
@@ -115,6 +116,33 @@ function loginErrorMessage(error){
   if(message.includes('rate limit'))return '로그인을 여러 번 시도해 잠시 제한됐습니다. 몇 분 후 다시 시도해주세요.';
   if(message.includes('fetch'))return 'Supabase 연결에 실패했습니다. 인터넷 연결을 확인해주세요.';
   return `로그인 오류: ${error?.message||'알 수 없는 오류'}`;
+}
+$('#showSignupBtn').onclick=()=>{$('.auth-card').classList.add('hidden');$('#signupCard').classList.remove('hidden');$('#signupError').textContent=''};
+$('#backToLoginBtn').onclick=()=>{$('#signupCard').classList.add('hidden');$('.auth-card').classList.remove('hidden');$('#loginError').textContent=''};
+$('#studentSignupForm').addEventListener('submit',async event=>{
+  event.preventDefault();if(!cloudClient)return;
+  const display_name=$('#signupName').value.trim(),email=$('#signupEmail').value.trim().toLowerCase(),password=$('#signupPassword').value,class_code=$('#signupClassCode').value.trim().toUpperCase();
+  const button=$('#studentSignupBtn');$('#signupError').textContent='';
+  if(password.length<8)return $('#signupError').textContent='비밀번호는 8자 이상으로 입력해 주세요.';
+  if(!/^[A-Z0-9-]{4,30}$/.test(class_code))return $('#signupError').textContent='가입코드는 영문, 숫자, - 기호로 4~30자 입력해 주세요.';
+  setBusy(button,true,'가입코드 확인 중...');
+  const {data:valid,error:codeError}=await cloudClient.rpc('validate_class_signup_code',{p_code:class_code});
+  if(codeError||!valid){setBusy(button,false,'가입 신청');return $('#signupError').textContent=codeError?'가입코드를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.':'가입코드가 맞지 않거나 현재 운영하지 않는 반입니다.'}
+  setBusy(button,true,'가입 신청 중...');
+  const {data,error}=await cloudClient.auth.signUp({email,password,options:{data:{display_name,class_code}}});
+  setBusy(button,false,'가입 신청');
+  if(error||!data.user)return $('#signupError').textContent=signupErrorMessage(error);
+  event.target.reset();
+  if(data.session)await cloudClient.auth.signOut();
+  $('#signupCard').classList.add('hidden');$('.auth-card').classList.remove('hidden');
+  $('#loginError').textContent=data.session?'가입 신청이 접수되었습니다. 관리자 승인 후 로그인해 주세요.':'가입 신청이 접수되었습니다. 이메일 확인 후 관리자 승인을 기다려 주세요.';
+});
+function signupErrorMessage(error){
+  const message=String(error?.message||'').toLowerCase();
+  if(message.includes('already registered')||message.includes('already been registered'))return '이미 가입된 이메일입니다. 로그인하거나 관리자에게 문의해 주세요.';
+  if(message.includes('rate limit'))return '가입 메일 발송이 잠시 제한됐습니다. 몇 분 후 다시 시도해 주세요.';
+  if(message.includes('database error'))return '가입코드가 유효하지 않습니다. 선생님에게 코드를 다시 확인해 주세요.';
+  return `가입 신청 실패: ${error?.message||'사용자 정보가 없습니다.'}`;
 }
 $('#accountBtn').addEventListener('click',()=>cloudClient?.auth.signOut());
 
@@ -161,7 +189,7 @@ async function loadAdminData(){
   $('#adminClassYear').value=new Date().getFullYear();
   $('#adminClassList').innerHTML=$('#adminStudentList').innerHTML=$('#adminTeacherList').innerHTML='<div class="loading-row">불러오는 중...</div>';
   const [classesResult,studentsResult,enrollmentsResult,teachersResult,teacherAssignmentsResult]=await Promise.all([
-    cloudClient.from('classes').select('id,name,school_year,is_active,created_at').order('school_year',{ascending:false}).order('name'),
+    cloudClient.from('classes').select('id,name,school_year,signup_code,is_active,created_at').order('school_year',{ascending:false}).order('name'),
     cloudClient.from('profiles').select('id,display_name,is_active').eq('role','student').order('display_name'),
     cloudClient.from('class_students').select('class_id,student_id,student_number,is_active,joined_at'),
     cloudClient.from('profiles').select('id,display_name,is_active').eq('role','teacher').order('display_name'),
@@ -185,15 +213,16 @@ function renderAdminData(){
   $('#adminTeacherSelect').innerHTML='<option value="">선생님을 선택하세요</option>'+adminState.teachers.filter(t=>t.is_active).map(t=>`<option value="${t.id}">${escapeHtml(t.display_name)}</option>`).join('');
   $('#newTeacherClasses').innerHTML=classCheckboxes(activeClasses,'newTeacherClass');
   $('#adminTeacherClasses').innerHTML=classCheckboxes(activeClasses,'adminTeacherClass');
-  $('#adminClassList').innerHTML=adminState.classes.map(c=>`<div class="management-row"><div><strong>${escapeHtml(c.name)}</strong><small>${c.school_year}학년도 · ${c.is_active?'운영 중':'종료'}</small></div><button class="status-btn ${c.is_active?'':'off'}" data-toggle-class="${c.id}">${c.is_active?'운영 종료':'다시 운영'}</button></div>`).join('')||'<div class="empty-row">등록된 반이 없습니다.</div>';
+  $('#adminClassList').innerHTML=adminState.classes.map(c=>`<div class="management-row"><div><strong>${escapeHtml(c.name)}</strong><small>${c.school_year}학년도 · 가입코드 ${escapeHtml(c.signup_code||'미설정')} · ${c.is_active?'운영 중':'종료'}</small></div><div class="row-actions"><button data-edit-class-code="${c.id}">가입코드 변경</button><button class="status-btn ${c.is_active?'':'off'}" data-toggle-class="${c.id}">${c.is_active?'운영 종료':'다시 운영'}</button></div></div>`).join('')||'<div class="empty-row">등록된 반이 없습니다.</div>';
   $('#adminTeacherList').innerHTML=adminState.teachers.map(t=>{const classNames=adminState.teacherAssignments.filter(a=>a.teacher_id===t.id).map(a=>adminState.classes.find(c=>c.id===a.class_id)?.name).filter(Boolean);return `<div class="management-row"><div><strong>${escapeHtml(t.display_name)}</strong><small class="teacher-assignment-summary">${classNames.length?`담당: ${classNames.map(escapeHtml).join(', ')}`:'담당 반 없음'} · ${t.is_active?'활성':'비활성'}</small></div><div class="row-actions"><button data-edit-teacher="${t.id}">이름 수정</button><button class="status-btn ${t.is_active?'':'off'}" data-toggle-teacher="${t.id}">${t.is_active?'사용 중':'비활성'}</button></div></div>`}).join('')||'<div class="empty-row">등록된 선생님이 없습니다.</div>';
-  $('#adminStudentList').innerHTML=adminState.enrollments.map(e=>{const student=adminState.students.find(s=>s.id===e.student_id),klass=adminState.classes.find(c=>c.id===e.class_id);if(!student||!klass)return'';return `<div class="management-row"><div><strong>${escapeHtml(student.display_name)}</strong><small>${escapeHtml(klass.name)}${e.student_number?` · ${escapeHtml(e.student_number)}번`:''} · ${e.is_active?'재원':'퇴원/이동'}</small></div><div class="row-actions"><button data-edit-student="${student.id}">이름 수정</button><button class="status-btn ${e.is_active?'':'off'}" data-toggle-enrollment="${e.class_id}|${e.student_id}">${e.is_active?'재원 중':'비활성'}</button></div></div>`}).join('')||'<div class="empty-row">반에 배정된 학생이 없습니다.</div>';
-  $$('[data-toggle-class]').forEach(btn=>btn.onclick=()=>toggleClass(btn.dataset.toggleClass));$$('[data-toggle-enrollment]').forEach(btn=>btn.onclick=()=>toggleEnrollment(btn.dataset.toggleEnrollment));$$('[data-edit-student]').forEach(btn=>btn.onclick=()=>editStudentName(btn.dataset.editStudent));$$('[data-toggle-teacher]').forEach(btn=>btn.onclick=()=>toggleTeacher(btn.dataset.toggleTeacher));$$('[data-edit-teacher]').forEach(btn=>btn.onclick=()=>editTeacherName(btn.dataset.editTeacher));
+  $('#adminStudentList').innerHTML=adminState.enrollments.map(e=>{const student=adminState.students.find(s=>s.id===e.student_id),klass=adminState.classes.find(c=>c.id===e.class_id);if(!student||!klass)return'';const pending=!student.is_active;return `<div class="management-row"><div><strong>${escapeHtml(student.display_name)}</strong><small>${escapeHtml(klass.name)}${e.student_number?` · ${escapeHtml(e.student_number)}번`:''} · ${pending?'가입 승인 대기':e.is_active?'재원':'퇴원/이동'}</small></div><div class="row-actions"><button data-edit-student="${student.id}">이름 수정</button>${pending?`<button class="status-btn" data-approve-student="${e.class_id}|${student.id}">가입 승인</button>`:`<button class="status-btn ${e.is_active?'':'off'}" data-toggle-enrollment="${e.class_id}|${student.id}">${e.is_active?'재원 중':'비활성'}</button>`}</div></div>`}).join('')||'<div class="empty-row">반에 배정된 학생이 없습니다.</div>';
+  $$('[data-toggle-class]').forEach(btn=>btn.onclick=()=>toggleClass(btn.dataset.toggleClass));$$('[data-edit-class-code]').forEach(btn=>btn.onclick=()=>editClassSignupCode(btn.dataset.editClassCode));$$('[data-toggle-enrollment]').forEach(btn=>btn.onclick=()=>toggleEnrollment(btn.dataset.toggleEnrollment));$$('[data-approve-student]').forEach(btn=>btn.onclick=()=>approveStudent(btn.dataset.approveStudent));$$('[data-edit-student]').forEach(btn=>btn.onclick=()=>editStudentName(btn.dataset.editStudent));$$('[data-toggle-teacher]').forEach(btn=>btn.onclick=()=>toggleTeacher(btn.dataset.toggleTeacher));$$('[data-edit-teacher]').forEach(btn=>btn.onclick=()=>editTeacherName(btn.dataset.editTeacher));
 }
 $('#adminTeacherSelect').addEventListener('change',event=>{const selected=adminState.teacherAssignments.filter(a=>a.teacher_id===event.target.value).map(a=>a.class_id);$('#adminTeacherClasses').innerHTML=classCheckboxes(adminState.classes.filter(c=>c.is_active),'adminTeacherClass',selected)});
 $('#classForm').addEventListener('submit',async event=>{
-  event.preventDefault();const name=$('#adminClassName').value.trim(),school_year=Number($('#adminClassYear').value);if(!name)return;
-  setBusy($('#saveClassBtn'),true,'저장 중...');const {error}=await cloudClient.from('classes').insert({academy_id:cloudProfile.academy_id,name,school_year});setBusy($('#saveClassBtn'),false,'반 저장');
+  event.preventDefault();const name=$('#adminClassName').value.trim(),school_year=Number($('#adminClassYear').value),signup_code=$('#adminClassSignupCode').value.trim().toUpperCase();if(!name)return;
+  if(!/^[A-Z0-9-]{4,30}$/.test(signup_code))return toast('가입코드는 영문, 숫자, - 기호로 4~30자 입력해 주세요.');
+  setBusy($('#saveClassBtn'),true,'저장 중...');const {error}=await cloudClient.from('classes').insert({academy_id:cloudProfile.academy_id,name,school_year,signup_code});setBusy($('#saveClassBtn'),false,'반 저장');
   if(error)return toast(error.code==='23505'?'같은 학년도의 반 이름이 이미 있습니다.':`반 저장 실패: ${error.message}`);event.target.reset();toast('새 반을 등록했습니다.');await loadAdminData();
 });
 $('#studentAssignForm').addEventListener('submit',async event=>{
@@ -245,7 +274,9 @@ $('#teacherAssignForm').addEventListener('submit',async event=>{
   setBusy(button,false,'담당 반 저장');toast('담당 반을 저장했습니다.');await loadAdminData();
 });
 async function toggleClass(id){const item=adminState.classes.find(c=>c.id===id);if(!item)return;const {error}=await cloudClient.from('classes').update({is_active:!item.is_active}).eq('id',id);if(error)return toast(`변경 실패: ${error.message}`);toast('반 상태를 변경했습니다.');await loadAdminData()}
+async function editClassSignupCode(id){const item=adminState.classes.find(c=>c.id===id),signup_code=prompt('학생에게 알려줄 반 가입코드를 입력하세요. (영문, 숫자, - 기호)',item?.signup_code||'')?.trim().toUpperCase();if(!signup_code||signup_code===item.signup_code)return;if(!/^[A-Z0-9-]{4,30}$/.test(signup_code))return toast('가입코드는 영문, 숫자, - 기호로 4~30자 입력해 주세요.');const {error}=await cloudClient.from('classes').update({signup_code}).eq('id',id);if(error)return toast(error.code==='23505'?'이미 다른 반에서 사용하는 가입코드입니다.':`가입코드 변경 실패: ${error.message}`);toast('반 가입코드를 변경했습니다.');await loadAdminData()}
 async function toggleEnrollment(key){const [class_id,student_id]=key.split('|'),item=adminState.enrollments.find(e=>e.class_id===class_id&&e.student_id===student_id);if(!item)return;const {error}=await cloudClient.from('class_students').update({is_active:!item.is_active}).eq('class_id',class_id).eq('student_id',student_id);if(error)return toast(`변경 실패: ${error.message}`);toast('학생 상태를 변경했습니다.');await loadAdminData()}
+async function approveStudent(key){const [class_id,student_id]=key.split('|');const enrollment=await cloudClient.from('class_students').update({is_active:true}).eq('class_id',class_id).eq('student_id',student_id);if(enrollment.error)return toast(`가입 승인 실패: ${enrollment.error.message}`);const profile=await cloudClient.from('profiles').update({is_active:true}).eq('id',student_id);if(profile.error)return toast(`반 배정은 승인됐지만 계정 활성화에 실패했습니다: ${profile.error.message}`);toast('학생 가입을 승인했습니다. 이제 로그인할 수 있습니다.');await loadAdminData()}
 async function editStudentName(id){const student=adminState.students.find(s=>s.id===id),display_name=prompt('학생 이름을 입력하세요.',student?.display_name||'')?.trim();if(!display_name||display_name===student.display_name)return;const {error}=await cloudClient.from('profiles').update({display_name}).eq('id',id);if(error)return toast(`이름 수정 실패: ${error.message}`);toast('학생 이름을 수정했습니다.');await loadAdminData()}
 async function toggleTeacher(id){const teacher=adminState.teachers.find(t=>t.id===id);if(!teacher)return;const {error}=await cloudClient.from('profiles').update({is_active:!teacher.is_active}).eq('id',id);if(error)return toast(`선생님 상태 변경 실패: ${error.message}`);toast('선생님 계정 상태를 변경했습니다.');await loadAdminData()}
 async function editTeacherName(id){const teacher=adminState.teachers.find(t=>t.id===id),display_name=prompt('선생님 이름을 입력하세요.',teacher?.display_name||'')?.trim();if(!display_name||display_name===teacher.display_name)return;const {error}=await cloudClient.from('profiles').update({display_name}).eq('id',id);if(error)return toast(`이름 수정 실패: ${error.message}`);toast('선생님 이름을 수정했습니다.');await loadAdminData()}

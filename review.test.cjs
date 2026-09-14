@@ -207,3 +207,10 @@ test('response-loss recovery reads a completed attempt without resubmission', as
   assert.equal(context.view,'score');
   assert.equal(context.error,undefined);
 });
+
+test('student self-signup migration requires a valid active class code and creates an inactive account', () => {
+  const sql=fs.readFileSync('supabase/migrations/006_student_self_signup.sql','utf8');
+  assert.match(sql,/where is_active and upper\(signup_code\) = requested_code/);
+  assert.match(sql,/values\(new\.id,target_class\.academy_id,'student',requested_name,false\)/);
+  assert.match(sql,/values\(target_class\.id,new\.id,false\)/);
+});
