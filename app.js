@@ -8,7 +8,8 @@ function show(view){if(view==='admin'&&cloudProfile?.role!=='admin')return toast
 $$('[data-view]').forEach(b=>b.addEventListener('click',()=>show(b.dataset.view)));
 
 function normalize(v){return String(v??'').trim().toLowerCase().replace(/[.,!?]/g,'').replace(/\s+/g,' ')}
-function normalizeKorean(v){return String(v??'').trim().toLowerCase().replace(/[\s.,!?~'\"()[\]{}·]/g,'')}
+function normalizeKorean(v){return String(v??'').normalize('NFC').trim().toLowerCase().replace(/\([^)]*\)/g,'').replace(/[\s.,!?~'\"()[\]{}·]/g,'')}
+function answerParts(v){return String(v??'').split(/[,，/·;\n\r]+|\s+또는\s+/).map(part=>part.trim()).filter(Boolean)}
 function editDistance(a,b){const row=Array.from({length:b.length+1},(_,i)=>i);for(let i=1;i<=a.length;i++){let previous=row[0];row[0]=i;for(let j=1;j<=b.length;j++){const saved=row[j];row[j]=Math.min(row[j]+1,row[j-1]+1,previous+(a[i-1]===b[j-1]?0:1));previous=saved}}return row[b.length]}
 function koreanAnswerMatches(answer,expected){const typed=normalizeKorean(answer),target=normalizeKorean(expected);if(!typed||!target)return false;if(typed===target)return true;const length=Math.max(typed.length,target.length),allowed=length>=8?2:length>=4?1:0;return editDistance(typed,target)<=allowed}
 function shuffle(a){return [...a].sort(()=>Math.random()-.5)}
@@ -30,7 +31,7 @@ function renderQuestion(){const q=state.questions[state.index],type=q.questionTy
 function speak(word){if(!('speechSynthesis'in window))return toast('이 브라우저는 음성 듣기를 지원하지 않아요.');speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(word);u.lang='en-US';u.rate=.78;speechSynthesis.speak(u)}
 $('#speakBtn').onclick=()=>speak(state.questions[state.index].english);
 $('#answerInput').addEventListener('keydown',e=>{if(e.key==='Enter')$('#nextQuestionBtn').click()});
-$('#nextQuestionBtn').addEventListener('click',()=>{const answer=$('#answerInput').value.trim();if(!answer)return toast('정답을 입력해주세요.');const word=state.questions[state.index],type=word.questionType||state.current.type,correct=type==='en-ko'?word.korean:word.english;const accepted=type==='en-ko'?correct.split(/[,;/·]| 또는 /).map(v=>v.trim()).filter(Boolean):[correct];const isCorrect=type==='en-ko'?accepted.some(v=>koreanAnswerMatches(answer,v)):accepted.some(v=>normalize(v)===normalize(answer));state.answers.push({word,answer,correct,isCorrect,type});if(++state.index<state.questions.length)renderQuestion();else finishTest()});
+$('#nextQuestionBtn').addEventListener('click',()=>{const answer=$('#answerInput').value.trim();if(!answer)return toast('정답을 입력해주세요.');const word=state.questions[state.index],type=word.questionType||state.current.type,correct=type==='en-ko'?word.korean:word.english;const accepted=type==='en-ko'?[...answerParts(correct),...(word.acceptedAnswers||[])]:[correct];const submitted=type==='en-ko'?answerParts(answer):[answer];const isCorrect=submitted.length>0&&submitted.every(part=>accepted.some(v=>koreanAnswerMatches(part,v)));state.answers.push({word,answer,correct,isCorrect,type,gradingStatus:isCorrect?'correct':'wrong'});if(++state.index<state.questions.length)renderQuestion();else finishTest()});
 function finishTest(){const correct=state.answers.filter(a=>a.isCorrect).length,score=Math.round(correct/state.answers.length*100),wrong=state.answers.filter(a=>!a.isCorrect);state.lastWrong=wrong.map(a=>a.word);const result={id:Date.now().toString(),date:new Date().toISOString(),...state.current,score,total:state.answers.length,correct,wrong:state.answers.filter(a=>!a.isCorrect)};state.results.unshift(result);save(STORE.results,state.results);$('#scoreValue').textContent=score;$('#scoreCircle').style.background=`conic-gradient(var(--blue) ${score}%,#e9eef4 0)`;$('#scoreMessage').textContent=score===100?'완벽해요! 최고예요 🎉':score>=80?'아주 잘했어요! 👏':'오답을 한 번 더 복습해요.';$('#scoreDetail').textContent=`${state.answers.length}문제 중 ${correct}문제를 맞혔어요.`;$('#wrongAnswers').innerHTML=wrong.length?'<h3>틀린 단어</h3>'+wrong.map(a=>`<div class="wrong-item"><div><strong>${escapeHtml(a.word.english)}</strong><small>${escapeHtml(a.word.korean)}</small></div><div>내 답: ${escapeHtml(a.answer)}</div></div>`).join(''):'<div class="card tip">틀린 문제가 없어요. 정말 훌륭해요!</div>';$('#retryWrongBtn').classList.toggle('hidden',!wrong.length);show('score')}
 $('#retryWrongBtn').onclick=()=>{if(state.lastWrong.length)startTest(state.lastWrong)};
 
@@ -333,6 +334,24 @@ function reviewAnswers(result) {
   return result.answers || result.wrong || [];
 }
 
+function gradingMark(answer) {
+  if (answer.gradingStatus === 'review') return '<span class="grading-badge review">관리자 확인 필요</span>';
+  return answer.isCorrect ? '<span class="grading-badge correct">정답</span>' : '<span class="grading-badge wrong">오답</span>';
+}
+
+async function decideReviewedAnswer(answerId, isCorrect, saveAsAccepted) {
+  if (!isStaff() || !answerId) return;
+  try {
+    checked(await cloudClient.rpc('review_attempt_answer', {p_answer_id:answerId,p_is_correct:isCorrect,p_save_as_accepted:saveAsAccepted}));
+    const answer=reviewAnswers(reviewResult).find(item=>item.id===answerId);
+    if(answer){answer.isCorrect=isCorrect;answer.gradingStatus=isCorrect?'correct':'wrong'}
+    const answers=reviewAnswers(reviewResult),correct=answers.filter(item=>item.isCorrect).length;
+    reviewResult.correct=correct;reviewResult.total=answers.length;reviewResult.score=Math.round(correct/answers.length*100);
+    showSavedResult(reviewResult);
+    toast(isCorrect?(saveAsAccepted?'정답으로 인정하고 다음 채점에도 반영했습니다.':'이번 답을 정답으로 인정했습니다.'):'오답으로 확정했습니다.');
+  } catch(error) { toast(`채점 확정 실패: ${error.message}`); }
+}
+
 function showSavedResult(result) {
   reviewResult = result;
   const answers = reviewAnswers(result);
@@ -344,10 +363,12 @@ function showSavedResult(result) {
   $('#scoreDetail').textContent = `${result.student} · ${result.bookName} · ${result.total}문제 중 ${result.correct}문제 정답`;
   $('#wrongAnswers').innerHTML = `<h3>${result.answers ? '전체 답안 · 오답 확인' : '틀린 단어'}</h3>` +
     (!result.answers ? '<p>이전 버전 기록은 틀린 단어만 보관되어 있습니다.</p>' : '') +
-    answers.map(a => `<div class="wrong-item"><div><strong>${a.isCorrect ? '✓' : '✕'} ${escapeHtml(a.word.english)}</strong><small>${escapeHtml(a.word.korean)}</small></div><div>내 답: ${escapeHtml(a.answer)}<br>정답: ${escapeHtml(a.correct)}</div></div>`).join('') +
+    answers.map(a => `<div class="wrong-item"><div><strong>${a.isCorrect ? '✓' : a.gradingStatus==='review' ? '?' : '✕'} ${escapeHtml(a.word.english)}</strong><small>${escapeHtml(a.word.korean)}</small>${gradingMark(a)}</div><div>내 답: ${escapeHtml(a.answer)}<br>정답: ${escapeHtml(a.correct)}${result.canReview&&a.gradingStatus==='review'?`<div class="review-actions"><button class="secondary" data-review-correct="${escapeHtml(a.id)}">정답 인정·계속 인정</button><button class="ghost" data-review-wrong="${escapeHtml(a.id)}">오답 확정</button></div>`:''}</div></div>`).join('') +
     (!wrong.length ? '<p>틀린 문제가 없습니다!</p>' : '') +
     (result.isPractice ? '<p>복습 결과이며 원래 시험 점수는 바뀌지 않습니다.</p>' : '');
   $('#retryWrongBtn').classList.toggle('hidden', !wrong.length);
+  $$('[data-review-correct]').forEach(button=>button.onclick=()=>decideReviewedAnswer(button.dataset.reviewCorrect,true,true));
+  $$('[data-review-wrong]').forEach(button=>button.onclick=()=>decideReviewedAnswer(button.dataset.reviewWrong,false,false));
   show('score');
 }
 
@@ -410,6 +431,13 @@ function checked(response) {
   return response.data || [];
 }
 
+async function fetchAttemptAnswers(attemptId) {
+  const enhanced=await cloudClient.from('attempt_answers').select('id,question_id,submitted_answer,correct_answer_snapshot,is_correct,grading_status').eq('attempt_id',attemptId);
+  if(!enhanced.error)return enhanced.data||[];
+  const legacy=await cloudClient.from('attempt_answers').select('id,question_id,submitted_answer,correct_answer_snapshot,is_correct').eq('attempt_id',attemptId);
+  return checked(legacy).map(answer=>({...answer,grading_status:answer.is_correct?'correct':'wrong'}));
+}
+
 async function fetchTestWords(testId) {
   const questions = await readAllRows(() => cloudClient.from('test_questions').select('*').eq('test_id', testId).order('position'));
   if (!questions.length) return [];
@@ -424,13 +452,13 @@ async function fetchTestWords(testId) {
 
 async function openStudentAttempt(test, attempt, className, bookName) {
   const words = await fetchTestWords(test.id);
-  const saved = checked(await cloudClient.from('attempt_answers').select('question_id,submitted_answer,correct_answer_snapshot,is_correct').eq('attempt_id', attempt.id));
+  const saved = await fetchAttemptAnswers(attempt.id);
   const type = test.test_type.replaceAll('_', '-');
   const answers = saved.map(a => {
     const word = words.find(w => w.questionId === a.question_id);
     if (!word) throw new Error('저장된 답안의 단어를 찾을 수 없습니다.');
     const questionType = word.questionType || type;
-    return {word:{...word, questionType}, answer:a.submitted_answer, correct:a.correct_answer_snapshot, isCorrect:a.is_correct, type:questionType};
+    return {id:a.id,word:{...word, questionType}, answer:a.submitted_answer, correct:a.correct_answer_snapshot, isCorrect:a.is_correct, gradingStatus:a.grading_status, type:questionType};
   });
   showSavedResult({id:attempt.id, date:attempt.submitted_at, student:cloudProfile.display_name,
     className, bookId:test.book_id, bookName, type, answers,
@@ -470,12 +498,12 @@ async function submitCloudAttempt() {
         p_answers:state.answers.map(a => ({question_id:a.word.questionId, answer:a.answer}))}));
       attempt = checked(await cloudClient.from('test_attempts').select('id,status,score,correct_count,total_count').eq('id', attempt.id).single());
     }
-    const saved = checked(await cloudClient.from('attempt_answers').select('question_id,submitted_answer,correct_answer_snapshot,is_correct').eq('attempt_id', attempt.id));
+    const saved = await fetchAttemptAnswers(attempt.id);
     if (saved.length !== state.answers.length) throw new Error('저장된 답안을 모두 불러오지 못했습니다. 다시 시도해 주세요.');
     const answers = state.answers.map(a => {
       const row = saved.find(item => item.question_id === a.word.questionId);
       if (!row) throw new Error('저장된 답안을 확인하지 못했습니다.');
-      return {...a, answer:row.submitted_answer, isCorrect:row.is_correct, correct:row.correct_answer_snapshot};
+      return {...a, id:row.id, answer:row.submitted_answer, isCorrect:row.is_correct, gradingStatus:row.grading_status, correct:row.correct_answer_snapshot};
     });
     showSavedResult({...state.current, id:attempt.id, answers,
       score:attempt.score, correct:attempt.correct_count, total:attempt.total_count});
@@ -666,7 +694,7 @@ async function openStaffResult(row) {
   if (!isStaff() || staffResultsState.owner !== cloudProfile.id) return;
   const owner = cloudProfile.id;
   const {test,student,className} = staffRowInfo(row);
-  const saved = checked(await cloudClient.from('attempt_answers').select('question_id,submitted_answer,correct_answer_snapshot,is_correct').eq('attempt_id',row.id));
+  const saved = await fetchAttemptAnswers(row.id);
   const words = await fetchTestWords(test.id);
   if (cloudProfile?.id !== owner || !isStaff()) return;
   if (saved.length !== row.total_count) throw new Error('전체 답안을 불러오지 못했습니다. 다시 조회해 주세요.');
@@ -674,10 +702,10 @@ async function openStaffResult(row) {
   const answers = saved.map(a => {
     const word = words.find(w => w.questionId === a.question_id);
     if (!word) throw new Error('답안의 단어를 찾을 수 없습니다.');
-    return {word, type:word.questionType || type, answer:a.submitted_answer, correct:a.correct_answer_snapshot,isCorrect:a.is_correct};
+    return {id:a.id,word, type:word.questionType || type, answer:a.submitted_answer, correct:a.correct_answer_snapshot,isCorrect:a.is_correct,gradingStatus:a.grading_status};
   });
   showSavedResult({id:row.id, student, className, bookId:test.book_id, bookName:test.title,
-    score:row.score,correct:row.correct_count,total:row.total_count,type,answers});
+    score:row.score,correct:row.correct_count,total:row.total_count,type,answers,canReview:true});
   $('#retryWrongBtn').classList.add('hidden');
   let back = $('#staffResultsBack');
   if (!back) {

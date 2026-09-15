@@ -20,8 +20,10 @@
 /* Keep the compact header while making the TG emblem easier to recognize. */
 .topbar{height:98px}
 .brand img{width:84px;height:72px}
+.grading-badge{display:inline-block;margin-top:8px;padding:4px 9px;border-radius:999px;font-size:12px;font-weight:800}.grading-badge.correct{background:#e9faf6;color:#21836f}.grading-badge.wrong{background:#fff0f3;color:#c93865}.grading-badge.review{background:#fff6d9;color:#8a6814}.review-actions{display:flex;gap:8px;margin-top:10px}.review-actions button{min-height:38px;padding:0 12px;font-size:13px}
 @media(max-width:650px){
   .topbar{height:88px}
   .brand{gap:8px}
   .brand img{width:76px;height:62px}
+  .review-actions{flex-direction:column}
 }

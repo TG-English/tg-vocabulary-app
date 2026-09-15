@@ -214,3 +214,13 @@ test('student self-signup migration requires a valid active class code and creat
   assert.match(sql,/values\(new\.id,target_class\.academy_id,'student',requested_name,false\)/);
   assert.match(sql,/values\(target_class\.id,new\.id,false\)/);
 });
+
+test('flexible grading migration splits meanings and keeps ambiguous stems for review', () => {
+  const sql=fs.readFileSync('supabase/migrations/007_flexible_korean_grading.sql','utf8');
+  assert.match(sql,/create or replace function public\.answer_parts/);
+  assert.match(sql,/grading_status in \('correct','wrong','review'\)/);
+  assert.match(sql,/matched_count=submitted_count then answer_status:='correct'/);
+  assert.match(sql,/possible_review then answer_status:='review'/);
+  assert.match(sql,/review_attempt_answer/);
+  assert.match(sql,/p_save_as_accepted/);
+});
