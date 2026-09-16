@@ -227,8 +227,13 @@ test('flexible grading migration splits meanings and keeps ambiguous stems for r
 
 test('teacher self-signup creates an inactive teacher for explicit admin approval', () => {
   const sql=fs.readFileSync('supabase/migrations/008_teacher_self_signup.sql','utf8');
+  const app=fs.readFileSync('app.js','utf8');
   assert.match(sql,/signup_type = 'teacher_request'/);
   assert.match(sql,/values\(new\.id,target_academy_id,'teacher',requested_name,lower\(new\.email\),false\)/);
   assert.match(sql,/count\(distinct academy_id\).*<> 1/s);
   assert.match(sql,/if requested_code = '' then return new/);
+  assert.match(app,/teacherSignupForm/);
+  assert.match(app,/signup_type:'teacher_request'/);
+  assert.match(app,/data-approve-teacher/);
+  assert.match(app,/async function approveTeacher/);
 });
