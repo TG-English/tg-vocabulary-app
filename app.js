@@ -21,7 +21,7 @@ $('#excelFile').addEventListener('change',async e=>{const file=e.target.files[0]
 $('#saveBookBtn').addEventListener('click',async()=>{const name=$('#bookName').value.trim();if(!name||!state.pendingWords.length)return toast('단어장 이름과 파일을 확인해주세요.');if(cloudClient&&['admin','teacher'].includes(cloudProfile?.role))return saveCloudBook(name);state.books.unshift({id:Date.now().toString(),name,words:state.pendingWords,createdAt:new Date().toISOString()});save(STORE.books,state.books);clearBookForm();renderBooks();toast('단어장을 저장했어요!')});
 function clearBookForm(){state.pendingWords=[];$('#bookName').value='';$('#excelFile').value='';$('#uploadPreview').classList.add('hidden');$('#saveBookBtn').disabled=true}
 function renderBooks(){$('#bookList').innerHTML=state.books.map(b=>`<div class="book-item"><div><strong>${escapeHtml(b.name)}</strong><small>${b.words.length}개 단어 · ${b.isCloud?'학원 공유':'이 기기'}</small></div><button data-delete-book="${b.id}">삭제</button></div>`).join('')||'<div class="card tip">아직 등록된 단어장이 없어요.</div>';$$('[data-delete-book]').forEach(btn=>btn.onclick=()=>deleteBook(btn.dataset.deleteBook))}
-async function deleteBook(id){const book=state.books.find(b=>b.id===id);if(!book||!confirm('이 단어장을 삭제할까요?'))return;if(book.isCloud){const {error}=await cloudClient.from('vocabulary_books').delete().eq('id',id);if(error)return toast(`삭제 실패: ${error.message}`)}state.books=state.books.filter(b=>b.id!==id);save(STORE.books,state.books.filter(b=>!b.isCloud));renderBooks();renderStats();toast('단어장을 삭제했습니다.')}
+async function deleteBook(id){const book=state.books.find(b=>b.id===id);if(!book||!confirm('이 단어장을 삭제할까요?'))return;if(book.isCloud){const {error}=await cloudClient.from('vocabulary_books').delete().eq('id',id);if(error){const message=String(error.message||'');if(/foreign key|violates|referenced/i.test(message))return toast('기존 시험 기록에서 사용 중인 단어장이라 삭제할 수 없어요. 새 엑셀을 바로 업로드하면 기존 기록을 보존한 채 업데이트할 수 있습니다.');return toast(`삭제 실패: ${message}`)}}state.books=state.books.filter(b=>b.id!==id);save(STORE.books,state.books.filter(b=>!b.isCloud));renderBooks();renderStats();toast('단어장을 삭제했습니다.')}
 function renderBookSelect(){$('#bookSelect').innerHTML='<option value="">단어장을 선택하세요</option>'+state.books.map(b=>`<option value="${b.id}">${escapeHtml(b.name)} (${b.words.length})</option>`).join('')}
 
 $('#startTestBtn').addEventListener('click',()=>startTest());
@@ -205,7 +205,10 @@ async function loadCloudClasses(){
 }
 async function saveCloudBook(name){
   const button=$('#saveBookBtn');setBusy(button,true,'업로드 중...');
-  const {data:book,error:bookError}=await cloudClient.from('vocabulary_books').insert({academy_id:cloudProfile.academy_id,owner_id:cloudProfile.id,title:name,is_sample:false}).select('id,title,created_at').single();
+  const {data:existingBooks,error:existingError}=await cloudClient.from('vocabulary_books').select('id,title').eq('academy_id',cloudProfile.academy_id).eq('title',name).limit(1);
+  if(existingError){setBusy(button,false,'단어장 저장');return toast(`기존 단어장 확인 실패: ${existingError.message}`)}
+  const uploadTitle=existingBooks?.length?`${name} (업데이트 ${new Date().toLocaleDateString('ko-KR')})`:name;
+  const {data:book,error:bookError}=await cloudClient.from('vocabulary_books').insert({academy_id:cloudProfile.academy_id,owner_id:cloudProfile.id,title:uploadTitle,is_sample:false}).select('id,title,created_at').single();
   if(bookError){setBusy(button,false,'단어장 저장');return toast(`단어장 저장 실패: ${bookError.message}`)}
   const rows=state.pendingWords.map((word,index)=>({book_id:book.id,english:word.english,korean:word.korean,accepted_answers:word.acceptedAnswers||[],position:index+1,day_number:word.dayNumber||null}));
   for(let index=0;index<rows.length;index+=500){const {error}=await cloudClient.from('vocabulary_words').insert(rows.slice(index,index+500));if(error){await cloudClient.from('vocabulary_books').delete().eq('id',book.id);setBusy(button,false,'단어장 저장');return toast(`단어 업로드 실패: ${error.message}`)}}
@@ -221,7 +224,7 @@ async function loadStudentTests(){
   const testsResult=await cloudClient.from('tests').select('id,title,test_type,question_count,pass_score,available_from,available_until,is_published,class_id,book_id').in('id',testIds);
   const attemptsResult=await cloudClient.from('test_attempts').select('test_id,score,status,submitted_at,attempt_number').eq('student_id',cloudProfile.id).in('test_id',testIds).order('attempt_number',{ascending:false});
   if(testsResult.error||attemptsResult.error){list.innerHTML='<div class="empty-row">시험 정보를 불러오지 못했습니다.</div>';return toast((testsResult.error||attemptsResult.error).message)}
-  const tests=testsResult.data||[],classIds=[...new Set(tests.map(test=>test.class_id))],bookIds=[...new Set(tests.map(test=>test.book_id))];
+  const tests=testsResult.data||[],classIds=[...new Set(tests.map(test=>test.class_id).filter(Boolean))],bookIds=[...new Set(tests.map(test=>test.book_id).filter(Boolean))];
   const [classesResult,booksResult]=await Promise.all([cloudClient.from('classes').select('id,name').in('id',classIds),cloudClient.from('vocabulary_books').select('id,title').in('id',bookIds)]);
   const classes=classesResult.data||[],books=booksResult.data||[],attempts=attemptsResult.data||[],now=Date.now();
   list.innerHTML=tests.map(test=>{const latest=attempts.find(item=>item.test_id===test.id),klass=classes.find(item=>item.id===test.class_id),book=books.find(item=>item.id===test.book_id),notStarted=test.available_from&&new Date(test.available_from).getTime()>now,expired=test.available_until&&new Date(test.available_until).getTime()<now,available=test.is_published&&!notStarted&&!expired;return `<div class="student-test-row"><div><span class="test-state ${available?'ready':''}">${latest?.status==='submitted'?`${latest.score}점`:available?'응시 가능':notStarted?'시작 전':expired?'종료':'준비 중'}</span><strong>${escapeHtml(test.title)}</strong><small>${escapeHtml(klass?.name||'배정 반')} · ${escapeHtml(book?.title||'단어장')} · ${test.question_count}문제</small></div><button class="secondary" ${available?'':'disabled'} data-cloud-test="${test.id}">${latest?.status==='submitted'?'다시 보기':'시험 보기'}</button></div>`}).join('');
@@ -546,7 +549,7 @@ loadStudentTests = async function() {
       const tests = checked(await cloudClient.from('tests').select('*').in('id', ids));
       if (tests.length !== ids.length) throw new Error(`배정 ${ids.length}건 중 시험 ${tests.length}건만 조회됐습니다. Supabase 시험 권한 설정을 확인해 주세요.`);
       const attempts = await readAllRows(() => cloudClient.from('test_attempts').select('id,test_id,status,score,correct_count,total_count,submitted_at,attempt_number').eq('student_id', owner).in('test_id', ids).order('attempt_number', {ascending:false}).order('id'));
-      const classIds=[...new Set(tests.map(test=>test.class_id))],bookIds=[...new Set(tests.map(test=>test.book_id))];
+      const classIds=[...new Set(tests.map(test=>test.class_id).filter(Boolean))],bookIds=[...new Set(tests.map(test=>test.book_id).filter(Boolean))];
       const [classes,books]=await Promise.all([
         checked(await cloudClient.from('classes').select('id,name').in('id',classIds)),
         checked(await cloudClient.from('vocabulary_books').select('id,title').in('id',bookIds))
